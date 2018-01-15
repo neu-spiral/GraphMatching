@@ -2,7 +2,7 @@ import numpy as np
 import sys,argparse,logging,datetime,pickle,time
 from pyspark import SparkContext,StorageLevel,SparkConf
 from operator import add,and_
-from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver
+from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator
 from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero
 from debug import logger,dumpPPhiRDD,dumpBasic
 from pprint import pformat
@@ -325,7 +325,7 @@ if __name__=="__main__":
 	   logger.debug("Iteration %d all var pairs is:\n%s" %(iteration,pformat(list(allvars.sortByKey().collect()),width=30)) )
 	
 	ZRDD = allvars.reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)  ).mapValues(lambda (value,count): 1.0*value/count).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-	if iteration % args.checkpoint_freq == 1:
+	if iteration % args.checkpoint_freq == 0 and iteration != 0:
 	    ZRDD.checkpoint()
 	
 	if DEBUG:
@@ -370,7 +370,7 @@ if __name__=="__main__":
 	
         #if not (args.silent or args.lean):
         if not (args.silent):
-	   if iteration % args.dump_trace_freq == 1:
+	   if iteration % args.dump_trace_freq == 0 and iteration != 0:
                 with open(args.outputfile+"_trace",'wb') as f:
             	    pickle.dump((args,trace),f)
     	        safeWrite(ZRDD,args.outputfile+"_ZRDD",args.driverdump)
@@ -388,10 +388,10 @@ if __name__=="__main__":
     logger.info("Finished ADMM iterations in %f seconds." % (end_timing-start_timing))
 
     if not args.silent:
-        with open(args.outputfile+"_trace",'wb') as f:
+        with open("/home/armin_mrm93/" + args.outputfile+"_trace",'wb') as f:
 	    pickle.dump((args,trace),f)
 
-    safeWrite(ZRDD,args.outputfile+"_ZRDD",args.driverdump)
+    safeWrite(ZRDD,"gs://armin-bucket/"+args.outputfile+"_ZRDD",args.driverdump)
     
 
     

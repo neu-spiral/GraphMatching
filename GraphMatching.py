@@ -124,8 +124,7 @@ if __name__=="__main__":
 
         ZRDD = sc.textFile(args.init+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
         
-	# TODO: pickle old PPhiRDD solvers or have a constructor?
-	PPhiRDD = sc.textFile(args.init+"_PPhiRDD").map(pickle.loads).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+	PPhiRDD = sc.textFile(args.init+"_PPhiRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
         
 	QXiRDD = sc.textFile(args.init+"_QXiRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
         TPsiRDD = sc.textFile(args.init+"_TPsiRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
@@ -376,7 +375,7 @@ if __name__=="__main__":
     	        safeWrite(ZRDD,args.outputfile+"_ZRDD",args.driverdump)
 		
                 if args.dumpRDDs:
-		    safeWrite(PPhiRDD.map(pickle.dumps),args.outputfile+"_PPhiRDD",args.driverdump)
+		    safeWrite(PPhiRDD,args.outputfile+"_PPhiRDD",args.driverdump)
 		    safeWrite(QXiRDD,args.outputfile+"_QXiRDD",args.driverdump)
 		    safeWrite(TPsiRDD,args.outputfile+"_TPsiRDD",args.driverdump)
 		#log.info("ZRDD is "+str(ZRDD.collect()))

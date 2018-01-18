@@ -358,7 +358,7 @@ if __name__=="__main__":
 	   logger.info("Iteration %d Z column sums are: Min %s Max %s " % ((iteration,)+ Zstats['CSUMS']) )
 	   logger.info("Iteration %d-1 Z objective value: %s  (= %s + %s) " % (iteration, Zstats['OLDOBJ'],Zstats['OLDNOLIN'],Zstats['OLDLIN']) )
 	   logger.info("Iteration %d-1 Z residuals: " % iteration+ "\t".join( [ key+":"+str(Zstats[key])  for key in ['DRES','PRES','QRES','TRES']] ) )
-  
+             
   
 	if not args.silent: #under "lean", still output some basic stats
 	   now = time.time()
@@ -376,9 +376,9 @@ if __name__=="__main__":
     	        safeWrite(ZRDD,args.outputfile+"_ZRDD",args.driverdump)
 		
                 if args.dumpRDDs:
-		    safeWrite(PPhiRDD.map(pickle.dumps),args.outputfile+"_PPhiRDD",args.driverdump)
-		    safeWrite(QXiRDD,args.outputfile+"_QXiRDD",args.driverdump)
-		    safeWrite(TPsiRDD,args.outputfile+"_TPsiRDD",args.driverdump)
+		    safeWrite(PPhiRDD.map(pickle.dumps),"gs://armin-bucket/"+args.outputfile+"_PPhiRDD",args.driverdump)
+		    safeWrite(QXiRDD,"gs://armin-bucket/"+args.outputfile+"_QXiRDD",args.driverdump)
+		    safeWrite(TPsiRDD,"gs://armin-bucket/"+args.outputfile+"_TPsiRDD",args.driverdump)
 		#log.info("ZRDD is "+str(ZRDD.collect()))
  
 	oldZ.unpersist()

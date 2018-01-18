@@ -58,12 +58,16 @@ class LocalSolver():
 
 	return PPhiRDD
 
+    @classmethod
+    def getclsname(cls):
+        junk, clsname = str(cls).split('.')
+        return clsname
     def __init__(self,objectives,rho= None):
 	self.objectives = dict(objectives)
 	self.rho = rho
 
     def __repr__(self):
-        return type(self).__name__+"("+str(self.objectives)+','+str(self.rho))
+        return '(' + str(self.objectives) + ',' + str(self.rho) + ')'
  
     def solve(self,zbar,rho):
     	pass

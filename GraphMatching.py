@@ -40,6 +40,10 @@ def testSimplexCondition(rdd,dir='row'):
     minsum = sums.reduce(min)
     maxsum = sums.reduce(max)
     return minsum, maxsum
+def evalSolvers(cls_args, P_vals, Phi_vals, stats, dumped_cls):
+    solvers_cls = pickle.loads(dumped_cls)
+    return solvers_cls(cls_args[0], cls_args[1]), P_vals, Phi_vals, stats
+    
 
 
 if __name__=="__main__":
@@ -48,7 +52,8 @@ if __name__=="__main__":
     start_timing = time.time()
     parser = argparse.ArgumentParser(description = 'Parallel Graph Matching over Spark.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('constraintfile',default=None,help ="File containing graph of constraints. ") 
-    parser.add_argument('outputfile',help = 'Output file storing learned doubly stochastic matrix Z')
+    parser.add_argument('outputfile',help = 'Output file storing the trace, which includes PR, DR, and OBJ.')
+    parser.add_argument('outputfileZRDD',help = 'Output file storing learned doubly stochastic matrix Z')
     parser.add_argument('--graph1',default=None,help = 'File containing first graph (optional).')
     parser.add_argument('--graph2',default=None,help = 'File containing second graph (optional).')
     parser.add_argument('--objectivefile',default=None,help="File containing pre-computed objectives. Graphs  need not be given if this argument is set.")
@@ -123,12 +128,9 @@ if __name__=="__main__":
        
 
         ZRDD = sc.textFile(args.init+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-        
-	PPhiRDD = sc.textFile(args.init+"_PPhiRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-        
+	PPhiRDD = sc.textFile(args.init+"_PPhiRDD").map(eval).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
 	QXiRDD = sc.textFile(args.init+"_QXiRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
         TPsiRDD = sc.textFile(args.init+"_TPsiRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-        print "PPhiRDD is:",PPhiRDD.take(1)
      
     else:
 	#Read constraint graph
@@ -372,12 +374,12 @@ if __name__=="__main__":
 	   if iteration % args.dump_trace_freq == 0 and iteration != 0:
                 with open(args.outputfile+"_trace",'wb') as f:
             	    pickle.dump((args,trace),f)
-    	        safeWrite(ZRDD,args.outputfile+"_ZRDD",args.driverdump)
+    	        safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
 		
                 if args.dumpRDDs:
-		    safeWrite(PPhiRDD,args.outputfile+"_PPhiRDD",args.driverdump)
-		    safeWrite(QXiRDD,args.outputfile+"_QXiRDD",args.driverdump)
-		    safeWrite(TPsiRDD,args.outputfile+"_TPsiRDD",args.driverdump)
+		    safeWrite(PPhiRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
+		    safeWrite(QXiRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
+		    safeWrite(TPsiRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
 		#log.info("ZRDD is "+str(ZRDD.collect()))
  
 	oldZ.unpersist()
@@ -387,10 +389,10 @@ if __name__=="__main__":
     logger.info("Finished ADMM iterations in %f seconds." % (end_timing-start_timing))
 
     if not args.silent:
-        with open("/home/armin_mrm93/" + args.outputfile+"_trace",'wb') as f:
+        with open(args.outputfile+"_trace",'wb') as f:
 	    pickle.dump((args,trace),f)
 
-    safeWrite(ZRDD,"gs://armin-bucket/"+args.outputfile+"_ZRDD",args.driverdump)
+    safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
     
 
     

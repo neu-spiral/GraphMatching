@@ -62,6 +62,9 @@ class LocalSolver():
 	self.objectives = dict(objectives)
 	self.rho = rho
 
+    def __repr__(self):
+        return type(self).__name__+"("+str(self.objectives)+','+str(self.rho))
+ 
     def solve(self,zbar,rho):
     	pass
 
@@ -69,11 +72,7 @@ class LocalSolver():
 	pass
 
     def __str__(self):
-	s = "Class: "+self.__class__.__name__
-	s += "\nObjectives:\n"
-	for k,v in self.objectives.iteritems():
-	     s += str(k) + ": "+str(v)+'\n' 
-	return s
+	return self.__repr__()
 
 
 

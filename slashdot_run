@@ -1,0 +1,20 @@
+#!/bin/bash
+#SBATCH --job-name=slash_run
+#SBATCH -N 1
+#SBATCH --exclusive
+#SBATCH --output=log/slashdot_run.%j.out
+#SBATCH --error=log/slashdot_run.%j.err
+module load gnu-4.4-compilers 
+module load fftw-3.3.3
+module load platform-mpi
+module load gnu-4.8.1-compilers
+module load oracle_java_1.7u40
+module load hadoop-2.4.1
+module load python-2.7.5
+module load spark-1.4.1_hadoop_2.4
+
+source spark-config.sh
+source /gss_gpfs_scratch/$USER/spark/conf/spark-env.sh
+
+ulimit -u 10000
+srun  spark-submit --master spark://10.100.9.167:7077   --executor-memory 450G --driver-memory 100G --py-files "LocalSolvers.py,helpers.py,debug.py"  --conf "spark.akka.frameSize=1024" --conf "spark.driver.maxResultSize=20G" GraphMatching.py data/slashdot/G_WL5    data/slashdot/output_WL5  --problemsize 80000 --solver LocalL2Solver --logfile data/slashdot/logs/matching_WL5_massive.log --N 20000 --rhoP 10.0 --rhoQ 5.0 --rhoT 5.0 --objectivefile data/slashdot/objectives_WL5 --maxiter 1000 --dump_trace_freq 5 --checkpoint_freq 5

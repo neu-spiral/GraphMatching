@@ -374,12 +374,12 @@ if __name__=="__main__":
 	   if iteration % args.dump_trace_freq == 0 and iteration != 0:
                 with open(args.outputfile+"_trace",'wb') as f:
             	    pickle.dump((args,trace),f)
-    	        safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
+    	        safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD_%diterations" %iteration,args.driverdump)
 		
                 if args.dumpRDDs:
-		    safeWrite(PPhiRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
-		    safeWrite(QXiRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
-		    safeWrite(TPsiRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
+		    safeWrite(PPhiRDD,args.outputfileZRDD+"_PPhiRDD_%diterations" %iteration,args.driverdump)
+		    safeWrite(QXiRDD,args.outputfileZRDD+"_QXiRDD_%diterations" %iteration,args.driverdump)
+		    safeWrite(TPsiRDD,args.outputfileZRDD+"_TPsiRDD_%diterations" %iteration,args.driverdump)
 		#log.info("ZRDD is "+str(ZRDD.collect()))
  
 	oldZ.unpersist()

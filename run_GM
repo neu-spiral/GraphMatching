@@ -1,18 +1,18 @@
-
 #! /bin/bash
 export BUCKET=armin-bucket
 export GRAPH=$1
+export GRAPH2=$2
 export homeDIR=/home/armin_mrm93/
-export iter=6
-        
-export continue=1
+export iter=1000
+export config="spark.executor.memory=80G,spark.driver.memory=20g,spark.rpc.message.maxSize=1024,spark.driver.maxResultSize=20G"        
+export continue=0
 export dump_freq=100
-for N in 64;
+for N in 20;
 do
     if [ $continue -eq 1 ]
     then
         gcloud dataproc jobs submit pyspark GraphMatching.py --properties spark.executor.memory=100G,spark.driver.memory=20g,spark.rpc.message.maxSize=1024,spark.driver.maxResultSize=20G   --cluster=foo2  --py-files "helpers.py,LocalSolvers.py,debug.py" -- gs://$BUCKET/data/$GRAPH"/G"  $homeDIR$GRAPH"_"$N"_out" gs://$BUCKET/$GRAPH"_"$N"_out_"$iter"iterations"  --graph1 gs://$BUCKET/data/$GRAPH"/graph" --graph2  gs://$BUCKET/data/$GRAPH"/graph"  --maxiter $iter  --N $N  --checkpointdir gs://armin-bucket/Checkpointing/$GRAPH"_"$N"parts_"  --logfile /home/armin_mrm93/$GRAPH"_"$N".log"   --checkpoint_freq 1000 --dump_trace_freq 20    --init gs://$BUCKET/$GRAPH"_"$N"_out_"$iter"iterations"
     else
-        gcloud dataproc jobs submit pyspark GraphMatching.py  --cluster=foo --py-files "helpers.py,LocalSolvers.py,debug.py" -- gs://$BUCKET/data/$GRAPH"/G"  $homeDIR$GRAPH"_"$N"_out" gs://$BUCKET/$GRAPH"_"$N"_out_"$iter"iterations"  --graph1 gs://$BUCKET/data/$GRAPH"/graph" --graph2  gs://$BUCKET/data/$GRAPH"/graph"  --maxiter $iter  --N $N  --checkpointdir gs://armin-bucket/Checkpointing/$GRAPH"_"$N"parts_"  --logfile /home/armin_mrm93/$GRAPH"_"$N".log"   --checkpoint_freq 1000 --dump_trace_freq 10
+        gcloud dataproc jobs submit pyspark GraphMatching_2.py  --cluster=foo --py-files "helpers.py,LocalSolvers.py,debug.py"  --properties "spark.executor.memory=80g,spark.executor.instances=10,spark.executor.cores=32,spark.rpc.message.maxSize=1024"  -- gs://$BUCKET/data/$GRAPH"/G"  $homeDIR$GRAPH"_"$N"_out" gs://$BUCKET/output_RDDs/$GRAPH"_"$N"_out"  --graph1 gs://$BUCKET/data/$GRAPH"/Graph" --graph2  gs://$BUCKET/data/$GRAPH2"/Graph"  --maxiter $iter  --N $N  --checkpointdir gs://armin-bucket/Checkpointing/$GRAPH"_"$N"parts_"  --logfile /home/armin_mrm93/$GRAPH"_"$N".log"   --checkpoint_freq 1000 --dump_trace_freq 100
     fi
 done 

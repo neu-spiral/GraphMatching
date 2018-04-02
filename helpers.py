@@ -1,6 +1,8 @@
 import datetime
 import os
 import shutil
+#from google.cloud import storage
+
 
 def NoneToZero(x):
     if x is None:
@@ -25,6 +27,15 @@ def safeWrite(rdd,outputfile,dvrdump=False):
 		    f.write("\n")  
     else:
        rdd.saveAsTextFile(outputfile)
+def delete_blob(bucket_name, blob_name):
+    """Deletes a blob from the bucket, used for GCP."""
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+
+    blob.delete()
+
+    print('Blob {} deleted.'.format(blob_name))
 
  
 def mergedicts(d1,d2,binop=lambda x,y:x+y):

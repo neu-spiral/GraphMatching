@@ -17,4 +17,4 @@ source spark-config.sh
 source /gss_gpfs_scratch/$USER/spark/conf/spark-env.sh
 
 ulimit -u 10000
-srun  spark-submit --master spark://10.100.9.167:7077   --executor-memory 450G --driver-memory 100G --py-files "LocalSolvers.py,helpers.py,debug.py"  --conf "spark.akka.frameSize=1024" --conf "spark.driver.maxResultSize=20G" GraphMatching.py data/slashdot/G_WL5    data/slashdot/output_WL5  --problemsize 80000 --solver LocalL2Solver --logfile data/slashdot/logs/matching_WL5_massive.log --N 20000 --rhoP 10.0 --rhoQ 5.0 --rhoT 5.0 --objectivefile data/slashdot/objectives_WL5 --maxiter 1000 --dump_trace_freq 5 --checkpoint_freq 5
+srun  spark-submit --master spark://10.100.9.167:7077   --executor-memory 450G --driver-memory 100G --py-files "LocalSolvers.py,helpers.py,debug.py"  --conf "spark.akka.frameSize=1024" --conf "spark.driver.maxResultSize=20G" GraphMatching.py data/slashdot/G_WL5    data/slashdot/output_WL5  --problemsize 80000 --solver LocalL2Solver --logfile data/slashdot/logs/matching_WL5_massive.log --N 380 --rhoP 10.0 --rhoQ 5.0 --rhoT 5.0 --objectivefile data/slashdot/objectives_WL5 --maxiter 1000 --dump_trace_freq 5 --checkpoint_freq 5

@@ -40,7 +40,7 @@ def degrees(graph,offset = 0,numPartitions=10):
 def matchColors(color1,color2,numPartitions=10):
     '''Constructs constraint graph by matching classes indicated by colors.
     '''
-    return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values()
+    return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions)
 
 
 
@@ -149,14 +149,14 @@ if __name__=="__main__":
         logger.info('Generate  constraints')
         if args.constraintmethod == 'all':
             G = cartesianProduct(graph1,graph2).persist(storage_level)
-        if args.constraintmethod == 'degree':
+        elif args.constraintmethod == 'degree':
 	    degree1=degrees(graph1,offset=args.degreedistance,numPartitions=args.N).persist(storage_level)
 	    #degree1.checkpoint()
 	    degree2=degrees(graph2,numPartitions=args.N).persist(storage_level)
 	    #degree1.checkpoint()
 	    G = matchColors(degree1,degree2,numPartitions=args.N).persist(storage_level)	
 	    #G.checkpoint()
-        if args.constraintmethod == 'WL':
+        elif args.constraintmethod == 'WL':
 	    color1 = WL(graph1,logger,depth=args.k,numPartitions=args.N) 
 	    color2 = WL(graph2,logger,depth=args.k,numPartitions=args.N) 
 	    G = matchColors(color1,color2).persist(storage_level) 	

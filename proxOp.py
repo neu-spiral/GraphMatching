@@ -8,19 +8,21 @@ def solve_ga(a, p):
     Func = lambda x:(x/a)**(p-1) + x - 1
     Func_prime = lambda x:(p-1)/a * (x/a)**(p-2) + 1
     x0 = 0.5
-    
-    x_sol = newton(func=Func, x0=x0, fprime=Func_prime, tol=1.48e-08, maxiter=50, fprime2=None)
+    try: 
+        x_sol = newton(func=Func, x0=x0, fprime=Func_prime, tol=1.48e-08, maxiter=50, fprime2=None)
+    except RuntimeError:
+        x_sol = 0.
     return x_sol
 
-
+def normp(RDD, p):
+    """Compute p-norm of a vector stored as an RDD."""
+    norm_to_P =  RDD.values().map(lambda x:x**p).reduce(lambda x,y:x+y)
+    return norm_to_P**(1./p)
 def pnorm_proxop(N, p, epsilon):
     """Solve prox operator for vector N and p-norm"""
-    #Initializing the vector Z
 
-    #The lenght of the vector
-    R = N.count()
 
-    N_norm = sqrt(N.values().map(lambda x:x**2).reduce(lambda x,y:x+y))
+    N_norm = normp(N, p)
 
     #Initial lower and upper norm
     Z_norm_L = 0.
@@ -29,9 +31,9 @@ def pnorm_proxop(N, p, epsilon):
     accuracy = epsilon + 1
     while accuracy> epsilon:
         Z_norm = (Z_norm_L + Z_norm_U)/2
-        print "Z norm is %f" %Z_norm
+        print "Z norm is %f" %Z_norm, N_norm
         Z = N.mapValues(lambda Nr: Nr*solve_ga(Z_norm * Nr**((2-p)/(p-1)), p)) 
-        Z_norm_current = sqrt(Z.values().map(lambda x:x**2).reduce(lambda x,y:x+y))
+        Z_norm_current = normp(Z, p)
         if Z_norm_current<Z_norm:
             Z_norm_U = Z_norm_current
         else:

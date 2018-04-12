@@ -2,26 +2,35 @@ import argparse
 from pyspark import SparkContext
 from math import sqrt
 from  scipy.optimize import newton
+from numpy import sign 
+
+from numpy import linalg as LA
+from sympy import Symbol, solve
+
+
 
 def solve_ga(a, p):
     """Return the solution of (x/a)^(p-1)+x=1"""
-    Func = lambda x:(x/a)**(p-1) + x - 1
-    Func_prime = lambda x:(p-1)/a * (x/a)**(p-2) + 1
-    x0 = 0.5
-    try: 
-        x_sol = newton(func=Func, x0=x0, fprime=Func_prime, tol=1.48e-08, maxiter=50, fprime2=None)
-    except RuntimeError:
-        x_sol = 0.
-    return x_sol
+    x = Symbol("x", positive=True)
+    sols = solve((x/a)**(p-1)+x-1)
+    if len(sols) == 0:
+        sol = 0.
+    else:
+        sol = max(sols)
+    return sol
 
 def normp(RDD, p):
     """Compute p-norm of a vector stored as an RDD."""
-    norm_to_P =  RDD.values().map(lambda x:x**p).reduce(lambda x,y:x+y)
+    norm_to_P =  RDD.values().map(lambda x:abs(x)**p).reduce(lambda x,y:x+y)
     return norm_to_P**(1./p)
-def pnorm_proxop(N, p, epsilon):
+def pnorm_proxop(N, p, rho, epsilon):
     """Solve prox operator for vector N and p-norm"""
 
-
+    #Normalize N
+    S = N.mapValues(lambda nr: sign(nr)).cache()
+    N = N.mapValues(lambda nr: rho*abs(nr)).cache()
+    
+    print S.collect()
     N_norm = normp(N, p)
 
     #Initial lower and upper norm
@@ -31,7 +40,6 @@ def pnorm_proxop(N, p, epsilon):
     accuracy = epsilon + 1
     while accuracy> epsilon:
         Z_norm = (Z_norm_L + Z_norm_U)/2
-        print "Z norm is %f" %Z_norm, N_norm
         Z = N.mapValues(lambda Nr: Nr*solve_ga(Z_norm * Nr**((2-p)/(p-1)), p)) 
         Z_norm_current = normp(Z, p)
         if Z_norm_current<Z_norm:
@@ -39,22 +47,28 @@ def pnorm_proxop(N, p, epsilon):
         else:
             Z_norm_L = Z_norm_current
         accuracy = (Z_norm_U-Z_norm_L)/N_norm
+    Z = Z.join(S).mapValues(lambda (zr, s):zr*s/rho).cache()
     return Z, Z_norm     
         
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Proximal Operator for p-norms over Spark.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    #parser.add_argument('inputfile',default=None,help ="File containing N. ")
-    #parser.add_argument('outputfile',help = 'Output file storing learned doubly stochastic matrix Z')
+    parser.add_argument('inputfile',default=None,help ="File containing N.")
+    parser.add_argument('outputfile',help = 'Output the result of the prox op Z.')
     parser.add_argument('--p',help='The norm p',type=float)
-    parser.add_argument('--epsilon',help='desired accuracy',default=1.e-2,type=float)
+    parser.add_argument('--rho',help='The rho in prox. operator',type=float)
+    parser.add_argument('--epsilon',help='desired accuracy',default=1.e-6,type=float)
+    parser.add_argument('--parts',help='partitions',default=10,type=int)
     args = parser.parse_args() 
     
 
     sc = SparkContext()
     sc.setLogLevel("OFF")
     p = args.p
+    rho = args.rho
     epsilon = args.epsilon
-    #N = sc.textFile(args.inputfile).map(eval).partitionBy(10).cache()
-    N = sc.parallelize([(1,22.9),(2,33.8),(3,98.2)]).cache()
+    N = sc.textFile(args.inputfile).map(eval).cache()
+    #N = sc.parallelize([(1,22.9),(2,33.8),(3,98.2)]).cache()
+    Z, Z_norm = pnorm_proxop(N, p, rho, epsilon)
+    Z.saveAsTextFile(args.outputfile)
+
     
-    pnorm_proxop(N, p, epsilon)

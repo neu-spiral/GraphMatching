@@ -67,9 +67,9 @@ def pnorm_proxop(N, p, rho, epsilon):
         Z = N.mapValues(lambda (Nr, Nr_sign):  (Nr*solve_ga_bisection(Z_norm * Nr**((2-p)/(p-1)), p), Nr_sign)) 
         Z_norm_current = normp(Z, p)
         if Z_norm_current<Z_norm:
-            Z_norm_U = Z_norm_current
+            Z_norm_U = Z_norm
         else:
-            Z_norm_L = Z_norm_current
+            Z_norm_L = Z_norm
         error = (Z_norm_U-Z_norm_L)/N_norm
         print "Error is %f, time is %f" %(error, time.time()-t_start)
     Z = Z.mapValues(lambda (zi, zi_sign):zi*zi_sign/rho).cache()

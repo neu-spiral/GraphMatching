@@ -1,6 +1,6 @@
 from cvxopt import spmatrix,matrix
 from cvxopt.solvers import qp,lp
-from helpers import identityHash,swap
+from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex
 import numpy as np
 from numpy.linalg import solve as linearSystemSolver,inv
 import logging
@@ -62,6 +62,7 @@ class LocalSolver():
     def getclsname(cls):
         junk, clsname = str(cls).split('.')
         return clsname
+
     def __init__(self,objectives,rho= None):
 	self.objectives = dict(objectives)
 	self.rho = rho
@@ -409,6 +410,70 @@ class LocalL1Solver(LocalSolver):
 	return newp,stats
 
 
+class LocalRowProjectionSolver(LocalSolver):
+    
+    @classmethod
+    def initializeLocalVariables(SolverClass,G,initvalue,N,rho):
+        def createLocalPrimalandDualRowVariables(splitIndex, iterator):
+            Primal = dict()
+            Dual = dict()
+            objectives = dict()
+            stats = dict()
+
+            for edge in iterator:
+                row,column = edge
+                Primal[edge] = initvalue
+                Dual[edge] = 0.0
+                if row in objectives:
+                    objectives[row].append(column)
+                else:
+                    objectives[row] = [column]
+
+            stats['variables'] = len(Primal)
+            stats['objectives'] = len(objectives)
+            return [(splitIndex,(SolverClass(objectives,rho),Primal,Dual,stats))]
+
+            
+        partitioned = G.partitionBy(N)
+        createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualRowVariables)
+        PrimalDualRDD = createVariables.partitionBy(N,partitionFunc=identityHash).cache()
+        return PrimalDualRDD
+
+    def variables(self):
+        """Return variables participating in optimization"""
+	varbles = []
+        for row in self.objectives:
+            for col in self.objectives[row]:
+                varbles.append((row,col))
+        return varbles
+
+
+    def solve(self,zbar,rho=None):
+        """ Solve optimization problem 
+
+                  min_x ||x -z[row]||_2^2 s.t. 
+                        \sum x_i=1, x_i >=0 for all i 
+
+           This should return the "unfolded" x, along with some statistics. This is basically projection onto the simplex.     
+        """
+        res=[]
+        stats={}
+        stats['ltzero']=0
+        stats['gtone']=0
+        for row in self.objectives:
+            zrow = {}
+            for col in self.objectives[row]:
+                zrow[(row,col)] = zbar[(row,col)]
+            xrow = projectToPositiveSimplex(zrow,1.0)
+            stats['ltzero']  += sum( (val<0.0 for val in xrow.values()) )
+            stats['gtone']  += sum( (val>1.0 for val in xrow.values()) )
+            res = res.extend(xrow.items())
+       return (dict(res),stats) 
+
+     def eval(self,rho=None):
+         pass
+
+
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('graph1',help = 'File containing first graph')
@@ -450,3 +515,5 @@ if __name__=="__main__":
     newp,stats= FL2.solve(Z)
     end = time()
     print 'FL2 solve in',end-start,'seconds, stats:',stats
+
+

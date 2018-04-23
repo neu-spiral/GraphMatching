@@ -59,14 +59,14 @@ class ParallelSolver():
         else:
             return None
 
-    def logstats():
+    def logstats(self):
         rdd = self.PrimalDualRDD
         
         statsonly =rdd.map(lambda (partitionid, (solver,P,Phi,stats)): stats)
         stats = statsonly.reduce(lambda x,y:  mergedicts(x,y))
         minstats = statsonly.reduce(lambda x,y:  mergedicts(x,y,min))
         maxstats = statsonly.reduce(lambda x,y:  mergedicts(x,y,max))
-        return " ".join([ key+"= %s (%s/%s)" % (str(1.0*stats[key]/N),str(minstats[key]),str(maxstats[key]))   for key in stats])   	
+        return " ".join([ key+"= %s (%s/%s)" % (str(1.0*stats[key]/self.N),str(minstats[key]),str(maxstats[key]))   for key in stats])   	
 
 
 

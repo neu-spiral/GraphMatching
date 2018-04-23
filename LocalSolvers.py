@@ -411,9 +411,13 @@ class LocalL1Solver(LocalSolver):
 
 
 class LocalRowProjectionSolver(LocalSolver):
-    
+    """ A class for projecting rows to the simplex."""
     @classmethod
+
+
     def initializeLocalVariables(SolverClass,G,initvalue,N,rho):
+        """ Produce an RDD containing solver, primal-dual variables, and some statistics.  
+        """
         def createLocalPrimalandDualRowVariables(splitIndex, iterator):
             Primal = dict()
             Dual = dict()
@@ -440,7 +444,7 @@ class LocalRowProjectionSolver(LocalSolver):
         return PrimalDualRDD
 
     def variables(self):
-        """Return variables participating in optimization"""
+        """Return variables participating in local optimization"""
 	varbles = []
         for row in self.objectives:
             for col in self.objectives[row]:
@@ -449,29 +453,121 @@ class LocalRowProjectionSolver(LocalSolver):
 
 
     def solve(self,zbar,rho=None):
-        """ Solve optimization problem 
+        """ Solve optimization problems (for each relevant row):
 
                   min_x ||x -z[row]||_2^2 s.t. 
                         \sum x_i=1, x_i >=0 for all i 
 
-           This should return the "unfolded" x, along with some statistics. This is basically projection onto the simplex.     
+           This should return the "unfolded" x, along with some statistics. This is basically projection of each row onto the simplex.     
         """
         res=[]
         stats={}
-        stats['ltzero']=0
-        stats['gtone']=0
-        for row in self.objectives:
+        stats['vars_lt_zero']=0
+        stats['vars_gt_one']=0
+        stats['rows_gt_one']=0
+        for row in self.objectives:       
             zrow = {}
             for col in self.objectives[row]:
                 zrow[(row,col)] = zbar[(row,col)]
             xrow = projectToPositiveSimplex(zrow,1.0)
-            stats['ltzero']  += sum( (val<0.0 for val in xrow.values()) )
-            stats['gtone']  += sum( (val>1.0 for val in xrow.values()) )
+            stats['vars_lt_zero']  += sum( (val<0.0 for val in xrow.values()) )
+            stats['vars_gt_one']  += sum( (val>1.0 for val in xrow.values()) )
+            stats['rows_gt_one']  += sum( xrow.values())> 1.0 
             res = res.extend(xrow.items())
        return (dict(res),stats) 
 
-     def eval(self,rho=None):
-         pass
+     def evaluate(self,z):
+         """ Evaluate objective. This returns True if z is feasible, False otherwise. 
+
+         """
+        for row in self.objectives:       
+            for col in self.objectives[row]:
+                if z[(row,col)]<0.0 or z[(row,col)]>1.0:
+                    return False
+            totsum = sum( (z[(row,col) for col in self.objectives[row] ) )
+            if totsum > 1.0:
+                    return False
+        return True
+
+class LocalColumnProjectionSolver(LocalSolver):
+    """ A class for projecting rows to the simplex."""
+    @classmethod
+
+
+    def initializeLocalVariables(SolverClass,Ginv,initvalue,N,rho):
+        """ Produce an RDD containing solver, primal-dual variables, and some statistics.  
+        """
+        def createLocalPrimalandDualColVariables(splitIndex, iterator):
+            Primal = dict()
+            Dual = dict()
+            objectives = dict()
+            stats = dict()
+
+            for edgeInv in iterator:
+                column,row = edgeInv
+                edge = (row,column)
+                Primal[edge] = initvalue
+                Dual[edge] = 0.0
+                if column in objectives:
+                    objectives[column].append(row)
+                else:
+                    objectives[column] = [row]
+
+            stats['variables'] = len(Primal)
+            stats['objectives'] = len(objectives)
+            return [(splitIndex,(SolverClass(objectives,rho),Primal,Dual,stats))]
+
+            
+        partitioned = G.map(swap).partitionBy(N)
+        createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualColumnVariables)
+        PrimalDualRDD = createVariables.partitionBy(N,partitionFunc=identityHash).cache()
+        return PrimalDualRDD
+
+    def variables(self):
+        """Return variables participating in local optimization"""
+	varbles = []
+        for col in self.objectives:
+            for row in self.objectives[col]:
+                varbles.append((row,col))
+        return varbles
+
+
+    def solve(self,zbar,rho=None):
+        """ Solve optimization problems (for each relevant col): 
+
+                  min_x ||x -z[col]||_2^2 s.t. 
+                        \sum x_i=1, x_i >=0 for all i 
+
+           This should return the "unfolded" x, along with some statistics. This is basically projection of each column onto the simplex.     
+        """
+        res=[]
+        stats={}
+        stats['vars_lt_zero']=0
+        stats['vars_gt_one']=0
+        stats['cols_gt_one']=0
+        for col in self.objectives:       
+            zcol = {}
+            for row in self.objectives[col]:
+                zcol[(row,col)] = zbar[(row,col)]
+            xcol = projectToPositiveSimplex(zcol,1.0)
+            stats['vars_lt_zero']  += sum( (val<0.0 for val in xcol.values()) )
+            stats['vars_gt_one']  += sum( (val>1.0 for val in xcol.values()) )
+            stats['cols_gt_one']  += sum(xcol.values()) > 1.0
+            res = res.extend(xcol.items())
+       return (dict(res),stats) 
+
+     def evaluate(self,z):
+         """ Evaluate objective. This returns True if z is feasible, False otherwise. 
+
+         """
+        for col in self.objectives:       
+            for row in self.objectives[row]:
+                if z[(row,col)]<0.0 or z[(row,col)]>1.0:
+                    return False
+            totsum = sum( (z[(row,col) for row in self.objectives[col] ) )
+            if totsum > 1.0:
+                    return False
+        return True
 
 
 if __name__=="__main__":

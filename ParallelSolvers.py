@@ -60,6 +60,8 @@ class ParallelSolver():
             return None
 
     def logstats(self):
+        """  Return statistics from PrimalDualRDD. In particular, this returns the average, min, and maximum value of each statistic.
+        """
         rdd = self.PrimalDualRDD
         
         statsonly =rdd.map(lambda (partitionid, (solver,P,Phi,stats)): stats)
@@ -68,6 +70,7 @@ class ParallelSolver():
         maxstats = statsonly.reduce(lambda x,y:  mergedicts(x,y,max))
         return " ".join([ key+"= %s (%s/%s)" % (str(1.0*stats[key]/self.N),str(minstats[key]),str(maxstats[key]))   for key in stats])   	
 
-
-
+    def getVars(self):
+        """Return the primal variables associated with this RDD. To be used to compute the new consensus variable"""
+        return self.PrimalDualRDD.flatMap(lambda (partitionId,(solver,P,Phi,stats)): [ (key, ( args.rhoP*( P[key]+Phi[key]),args.rhoP))    for key in P ]  )
 

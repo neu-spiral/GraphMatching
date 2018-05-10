@@ -25,7 +25,7 @@ def SijGenerator(graph1,graph2,G,N):
 class LocalSolver():
 
     @classmethod
-    def initializeLocalVariables(SolverClass,Sij,initvalue,N,rho):
+    def initializeLocalVariables(cls,Sij,initvalue,N,rho):
 
         if logger.getEffectiveLevel()==logging.DEBUG:
 	     logger.debug(Sij_test(G,graph1,graph2,Sij))
@@ -49,7 +49,7 @@ class LocalSolver():
 	    stats['variables'] = len(P)
 	    stats['objectives'] = len(objectives)
    
-            return [(splitIndex,(SolverClass(objectives,rho),P,Phi,stats))]
+            return [(splitIndex,(cls(objectives,rho),P,Phi,stats))]
 
         partitioned =  Sij.partitionBy(N)
 	createVariables = partitioned.mapPartitionsWithIndex(createLocalPandPhiVariables)
@@ -366,48 +366,48 @@ class LocalL1Solver(LocalSolver):
 
     
 
-    def solveWithRowColumnConstraints(self):
-	variables = self.pvariables.keys()
-	v1,v2 = zip(*variables)
-	v1 = set(v1)
-	v2 = set(v2)
-	
-	row = 0
-        tuples = []
-	for v in v1:
-	    rowv = [  (i,j) for (i,j) in variables if i==v ]
-	    print rowv
-	    tuples += [(row,self.pvariables[x],1.0)  for x in rowv]
-	    row += 1
-
-	for v in v2:
-	    colv = [  (i,j) for (i,j) in variables if j==v ]
-	    print colv
-	    tuples += [(row,self.pvariables[x],1.0)  for x in colv]
-	    row += 1
-
-	#print tuples
-	I,J,V = zip(*tuples)
-	print I,J,V
-	A = spmatrix(V,I,J)
-	b = matrix(1.0,size=(row,1))
-	#print(np.matrix(matrix(A)))
-
-	print('p='+str(row)+' rank(A)='+str(matrix_rank(np.matrix(matrix(A)))))
-        q = [0.5] * self.numt
-	q += [0.0 for key in self.pvariables]
-	q = matrix(q,size=(self.numt+self.nump, 1))
-	result = lp(q,self.G,self.h,A,b)	
-	
-	sol = result['x']
-	newp= dict( ( (key, sol[self.pvariables[key]]  )  for  key in self.pvariables ))	
-
-	stats = {}
-	stats[result['status']]=1.0
-	localval = self.evaluate(newp)
-	stats['obj'] = localval
-
-	return newp,stats
+#    def solveWithRowColumnConstraints(self):
+#	variables = self.pvariables.keys()
+#	v1,v2 = zip(*variables)
+#	v1 = set(v1)
+#	v2 = set(v2)
+#	
+#	row = 0
+#        tuples = []
+#	for v in v1:
+#	    rowv = [  (i,j) for (i,j) in variables if i==v ]
+#	    print rowv
+#	    tuples += [(row,self.pvariables[x],1.0)  for x in rowv]
+#	    row += 1
+#
+#	for v in v2:
+#	    colv = [  (i,j) for (i,j) in variables if j==v ]
+#	    print colv
+#	    tuples += [(row,self.pvariables[x],1.0)  for x in colv]
+#	    row += 1
+#
+#	#print tuples
+#	I,J,V = zip(*tuples)
+#	print I,J,V
+#	A = spmatrix(V,I,J)
+#	b = matrix(1.0,size=(row,1))
+#	#print(np.matrix(matrix(A)))
+#
+#	print('p='+str(row)+' rank(A)='+str(matrix_rank(np.matrix(matrix(A)))))
+#        q = [0.5] * self.numt
+#	q += [0.0 for key in self.pvariables]
+#	q = matrix(q,size=(self.numt+self.nump, 1))
+#	result = lp(q,self.G,self.h,A,b)	
+#	
+#	sol = result['x']
+#	newp= dict( ( (key, sol[self.pvariables[key]]  )  for  key in self.pvariables ))	
+#
+#	stats = {}
+#	stats[result['status']]=1.0
+#	localval = self.evaluate(newp)
+#	stats['obj'] = localval
+#
+#	return newp,stats
 
 
 class LocalRowProjectionSolver(LocalSolver):
@@ -473,18 +473,18 @@ class LocalRowProjectionSolver(LocalSolver):
             stats['vars_lt_zero']  += sum( (val<0.0 for val in xrow.values()) )
             stats['vars_gt_one']  += sum( (val>1.0 for val in xrow.values()) )
             stats['rows_gt_one']  += sum( xrow.values())> 1.0 
-            res = res.extend(xrow.items())
-       return (dict(res),stats) 
+            res = res + xrow.items()
+        return (dict(res),stats) 
 
-     def evaluate(self,z):
-         """ Evaluate objective. This returns True if z is feasible, False otherwise. 
+    def evaluate(self,z):
+        """ Evaluate objective. This returns True if z is feasible, False otherwise. 
 
-         """
+        """
         for row in self.objectives:       
             for col in self.objectives[row]:
                 if z[(row,col)]<0.0 or z[(row,col)]>1.0:
                     return False
-            totsum = sum( (z[(row,col) for col in self.objectives[row] ) )
+            totsum = sum( (z[(row,col)] for col in self.objectives[row] ) )
             if totsum > 1.0:
                     return False
         return True
@@ -554,17 +554,17 @@ class LocalColumnProjectionSolver(LocalSolver):
             stats['vars_gt_one']  += sum( (val>1.0 for val in xcol.values()) )
             stats['cols_gt_one']  += sum(xcol.values()) > 1.0
             res = res.extend(xcol.items())
-       return (dict(res),stats) 
+        return (dict(res),stats) 
 
-     def evaluate(self,z):
-         """ Evaluate objective. This returns True if z is feasible, False otherwise. 
+    def evaluate(self,z):
+        """ Evaluate objective. This returns True if z is feasible, False otherwise. 
 
-         """
+        """
         for col in self.objectives:       
             for row in self.objectives[row]:
                 if z[(row,col)]<0.0 or z[(row,col)]>1.0:
                     return False
-            totsum = sum( (z[(row,col) for row in self.objectives[col] ) )
+            totsum = sum( (z[(row,col)] for row in self.objectives[col] ) )
             if totsum > 1.0:
                     return False
         return True

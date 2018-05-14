@@ -20,8 +20,78 @@ def SijGenerator(graph1,graph2,G,N):
     #Do an "outer join"
     Sij = Sij1.cogroup(Sij2,N).mapValues(lambda (l1,l2):(list(set(l1)),list(set(l2))))
     return Sij
+def General_LASSO(D, y):
+    """
+        Solve the problm:
+             min_beta \|y-beta\|_2^2 + lambda \|D beta\|_1
+        It is the implementation  of Alg. 2 in THE SOLUTION PATH OF THE GENERALIZED LASSO, Tibshirani and Taylor.
+        D is a numpy matrix. 
+    """
+    def find_DminusB(D, B_S):
+        """Given the matrix D and the coordinates and signs in B_S return the matrix for -B set"""
+        P, N = D.shape
+        B_corrdinates  = [i for (i,sgn_i) in B_S]
+        D_mindusB = zeros((P-len(B_corrdinates), N))
+        j = 0
+        trasnslate_itoj = {}
+        for i in range(P):
+            if i not in B_corrdinates:
+                D_mindusB[j,:] = D[i,:]
+                trasnslate_itoj[j] = i
+        return trasnslate_itoj, D_mindusB
+                
+    def find_D_B(D, B_S):
+        """Given the matrix D and the coordinates and signs in B_S return the matrix for B set"""
+        P, N = D.shape
+        D_B = zeros((len(B_corrdinates), N))
+        j = 0
+        trasnslate_itoj = {}
+        for (i,sgn_i) in B_S:
+                D_B[j,:] = D[i,:]
+                trasnslate_itoj[j] = i
+        return trasnslate_itoj, D_B
+    def HitTimes(D_minusB_sqrd, D_minusB_sqrd_psudoinv, D_mindusB, D_B_times_sgn,  y, B_S, lambda_k)
+    """
+        Compute the hitting times (see Eq. (27))
+    """
+        P_minus, N = D_mindusB.shape
+        t_hit = {}
+        for i in range(P_minus)
+            NUM = float(   (  D_minusB_sqrd_psudoinv*D_mindusB*y  )[i]   )
+            prod = float( D_minusB_sqrd_psudoinv*D_minusB*D_B_times_sgn )
+            DEN_plus = prod + 1
+            DEN_minus = prod - 1
+            if NUM/DEN_plus>=0 or NUM/DEN_plus<=lambda_k:
+                t_hit[i] = NUM/DEN_plus
+            else:
+                t_hit[i] = NUM/DEN_minus
+        return t_hit
+     def LeaveTimes(D_B, D_minus_B, D_minusB_sqrd_psudoinv, y, D_B_times_sgn, B_S):
+     """
+         Compute leaving times (see Eq. (29))
+     """
+         P_minus, N = D_mindusB.shape
+         for (i, sgn_i) in B_S:
+             c_i = sgn_i * (D_B*(np.identity(N)-D_minus_B.transpose()*D_minusB_sqrd_psudoinv * D_minus_B
+   ##To BE Continued!!
+        
+    P, N = D.shape
+    k = 0
+    lambda_0 = float('Inf')
+    B_S = []
+    lambda_k = lambda_0
+    while lambda_k>0:
+        trasnslate_itoj_minusB, D_mindusB = find_DminusB(D, B_S)
+        trasnslate_itoj_B, D_B = find_D_B(D, B_S)
+        D_B_times_sgn = sum([D[i,:]*s for (i,s) in B_S]).transpose()
+        D_minusB_sqrd = D_mindusB*D_mindusB.transpose()
+        D_minusB_sqrd_psudoinv = np.linalg.pinv(D_minusB_sqrd)
+        #Compute the least suare solution, see Eq. (26).
+        u_hat_minusB = D_minusB_sqrd_psudoinv*D_minusB*(y-lambda_k*D_B_times_sgn)
+        #Compute hitting times
+        t_hit = HitTimes(D_minusB_sqrd, D_minusB_sqrd_psudoinv, D_mindusB, D_B_times_sgn, y, B_S, lambda_k)
 
-
+        
 class LocalSolver():
 
     @classmethod

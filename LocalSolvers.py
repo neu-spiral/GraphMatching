@@ -38,6 +38,7 @@ def General_LASSO(D, y):
             if i not in B_corrdinates:
                 D_mindusB[j,:] = D[i,:]
                 trasnslate_itoj[j] = i
+                j = j+1
         return trasnslate_itoj, D_mindusB
                 
     def find_D_B(D, B_S):
@@ -50,34 +51,71 @@ def General_LASSO(D, y):
                 D_B[j,:] = D[i,:]
                 trasnslate_itoj[j] = i
         return trasnslate_itoj, D_B
-    def HitTimes(D_minusB_sqrd, D_minusB_sqrd_psudoinv, D_mindusB, D_B_times_sgn,  y, B_S, lambda_k)
+    def HitTimes(D_minusB_sqrd, D_minusB_sqrd_psudoinv, D_mindusB, D_B_times_sgn,  y, B_S, lambda_k, trasnslate_itoj_minusB)
     """
         Compute the hitting times (see Eq. (27))
     """
         P_minus, N = D_mindusB.shape
         t_hit = {}
         for i in range(P_minus)
-            NUM = float(   (  D_minusB_sqrd_psudoinv*D_mindusB*y  )[i]   )
-            prod = float( D_minusB_sqrd_psudoinv*D_minusB*D_B_times_sgn )
-            DEN_plus = prod + 1
-            DEN_minus = prod - 1
-            if NUM/DEN_plus>=0 or NUM/DEN_plus<=lambda_k:
-                t_hit[i] = NUM/DEN_plus
+            coordinate_i = trasnslate_itoj_minusB[i]
+            a_i = float(   (  D_minusB_sqrd_psudoinv*D_mindusB*y  )[i]   )
+            b_i = float( (D_minusB_sqrd_psudoinv*D_minusB*D_B_times_sgni)[i] )
+            DEN_plus = b_i + 1.
+            DEN_minus = b_i - 1.
+            if a_i/DEN_plus>=0 and a_i/DEN_plus<=lambda_k:
+                t_hit[coordinate_i] = a_i/DEN_plus
             else:
-                t_hit[i] = NUM/DEN_minus
+                t_hit[coordinate_i] = a_i/DEN_minus
         return t_hit
      def LeaveTimes(D_B, D_minus_B, D_minusB_sqrd_psudoinv, y, D_B_times_sgn, B_S):
      """
          Compute leaving times (see Eq. (29))
      """
          P_minus, N = D_mindusB.shape
+         t_leave = {}
          for (i, sgn_i) in B_S:
-             c_i = sgn_i * (D_B*(np.identity(N)-D_minus_B.transpose()*D_minusB_sqrd_psudoinv * D_minus_B
-   ##To BE Continued!!
+             c_i = sgn_i * float(  (D_B*(np.identity(N)-D_minus_B.transpose()*D_minusB_sqrd_psudoinv * D_minus_B)*y)[i]  )
+             d_i = sgn_i * float(  (D_B*(np.identity(N)-D_minus_B.transpose()*D_minusB_sqrd_psudoinv * D_minus_B)*D_B_times_sgn)[i]  ) 
+             if c_i<0 and d_i<0:
+                 t_leave[i] = c_i/d_i
+             else:
+                 t_leave[i] = 0.
+        return t_leave
+    def next_kink(t_hit, t_leave):
+    """Given hitting and leaving times find the next lambda, corresponding to a kink"""
+        max_t = 0.0:
+        leaving_coordinate = None
+        for j in t_hit:
+            if t_hit[j]>max_t:
+                max_t = HitTimes[j]
+                coordinate = j
+        for j in t_leave:
+            if t_leave[j]>max_t:
+                max_t = HitTimes[j]
+                leaving_coordinate = j
+        lambda_k = max_t
+        if leaving_coordinate == None:
+            status = 'hit'
+            coord = coordinate
+        else:
+            status = 'leave'
+            coord = leaving_coordinate
+        return status, coord, lambda_k
+    def update_boundary_set(B_S, status, coord, sgn_coord):
+    """Add or remove coord according to status to or form B_S"""
+        if status == 'hit':
+            B_S.append((coord, sgn_coord))
+        else:
+            B_S_dict = dict(B_S)
+            B_S_dict.pop( coord)
+            B_S = B_S_dict.items()
+        return B_S
         
     P, N = D.shape
     k = 0
     lambda_0 = float('Inf')
+    #B_S keeps track of the coordinates on the boundary and their signs, i.e., it is a list of tuples (i th coordinate, sign of i th coordinate)
     B_S = []
     lambda_k = lambda_0
     while lambda_k>0:
@@ -86,10 +124,20 @@ def General_LASSO(D, y):
         D_B_times_sgn = sum([D[i,:]*s for (i,s) in B_S]).transpose()
         D_minusB_sqrd = D_mindusB*D_mindusB.transpose()
         D_minusB_sqrd_psudoinv = np.linalg.pinv(D_minusB_sqrd)
-        #Compute the least suare solution, see Eq. (26).
-        u_hat_minusB = D_minusB_sqrd_psudoinv*D_minusB*(y-lambda_k*D_B_times_sgn)
-        #Compute hitting times
-        t_hit = HitTimes(D_minusB_sqrd, D_minusB_sqrd_psudoinv, D_mindusB, D_B_times_sgn, y, B_S, lambda_k)
+        #Compute the least suare solution, see Eq. (26). It`s a linear functions of lambda
+        u_hat_minusB = lambda lam: D_minusB_sqrd_psudoinv*D_minusB*(y-lam*D_B_times_sgn)
+        #Compute hitting and leaving times
+        t_hit = HitTimes(D_minusB_sqrd, D_minusB_sqrd_psudoinv, D_mindusB, D_B_times_sgn, y, B_S, lambda_k, trasnslate_itoj_minusB)
+        t_leave = LeaveTimes(D_B, D_minus_B, D_minusB_sqrd_psudoinv, y, D_B_times_sgn, B_S)
+        #Find the next hitting or leaving time
+        status, coord, lambda_k = next_kink(t_hit, t_leave)
+        u_minusB = u_hat_minusB(lambda_k)
+        trasnslate_jtoi_minusB = dict([(trasnslate_itoj_minusB[val], val) for val in trasnslate_itoj_minusB])
+        i_coord = trasnslate_jtoi_minusB[coord]
+        u_hat = u_hat_minusB(lambda_k)
+        sgn_coord = np.sign( float( u_hat[i_coord]) )
+        B_S = update_boundary_set(B_S, status, coord, sgn_coord)
+         
 
         
 class LocalSolver():

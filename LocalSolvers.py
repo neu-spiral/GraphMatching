@@ -67,10 +67,21 @@ def General_LASSO(D, y, rho):
             b_i = float( b_i_s[i])
             DEN_plus = b_i + 1.
             DEN_minus = b_i - 1.
-            if a_i/DEN_plus>=0 and a_i/DEN_plus<=lambda_k:
-                t_hit[coordinate_i] = a_i/DEN_plus
+            
+            t_plus = a_i/DEN_plus
+            t_minus = a_i/DEN_minus
+          
+            if t_minus<0 and t_plus>=0:
+                t_hit[coordinate_i] = t_plus
+            elif t_minus>=0 and t_plus<0:            
+                t_hit[coordinate_i] = t_minus
             else:
-                t_hit[coordinate_i] = a_i/DEN_minus
+                sgn_min = min(t_minus, t_plus)
+                if sgn_min<lambda_k:
+                    t_hit[coordinate_i] = sgn_min
+                else:
+                    print 'ERROR'
+                    break    
         return t_hit
     def LeaveTimes(D_B, D_minus_B, D_minusB_sqrd_psudoinv, y, D_B_times_sgn, B_S, trasnslate_itoj_B):
         """Compute leaving times (see Eq. (29))"""
@@ -175,6 +186,7 @@ def General_LASSO(D, y, rho):
         
         if lambda_k< rho:
             break
+        print lambda_k, k, coord, status
         #u_hat = u_hat_minusB(lambda_k)
         B_S = update_boundary_set(B_S, status, coord, sgn_coord)
         k = k+1 
@@ -744,11 +756,11 @@ class LocalColumnProjectionSolver(LocalSolver):
 
 
 if __name__=="__main__":
-    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('D', help='File contatining the matrix D')
-    parser.add_argument('y', help='File containing the vector y')
-    parser.add_argument('outfile', help='File to store the sol')
-    parser.add_argument('--rho', help='Values of rho', type=float,default=1.) 
+#    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+#    parser.add_argument('D', help='File contatining the matrix D')
+#    parser.add_argument('y', help='File containing the vector y')
+#    parser.add_argument('outfile', help='File to store the sol')
+#    parser.add_argument('--rho', help='Values of rho', type=float,default=1.) 
 #    parser.add_argument('graph1',help = 'File containing first graph')
 #    parser.add_argument('graph2',help = 'File containing second graph')
 #    parser.add_argument('G',help = 'Constraint graph')
@@ -756,7 +768,7 @@ if __name__=="__main__":
 #    parser.add_argument('--rho',default=1.0,type=float, help='rho')
 #
 #
-    args = parser.parse_args()
+#    args = parser.parse_args()
 #    sc = SparkContext(appName='Local Solver Test')
 #    
 #    graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
@@ -788,21 +800,29 @@ if __name__=="__main__":
 #    newp,stats= FL2.solve(Z)
 #    end = time()
 #    print 'FL2 solve in',end-start,'seconds, stats:',stats
-#    np.random.seed(1993)
-#    P = 7
-#    N = 8
-#    D = np.matrix(np.random.random(P*N)).reshape(P,N)
-#    y = np.matrix( np.random.random(N) ).reshape(N,1)
-    D, p, N = readfile( args.D)
-    y, N_1, one = readfile( args.y)
-    rho = args.rho
-    if N != N_1:
-        print "Dimensions do not match."  
-    D = np.matrix(D).reshape((p,N))
-    y = np.matrix(y).reshape((N, 1))
-    sol, u, dual_obj =   General_LASSO(D, y, rho)
-    fp = open(args.outfile,'w')
-    fp.write(str(dual_obj))
-    fp.close() 
+    np.random.seed(1993)
+    tstart = time()
+    P = 70
+    N = 80
+    D = np.matrix(np.random.random(P*N)).reshape(P,N)
+    y = np.matrix( np.random.random(N) ).reshape(N,1)
+    sol, u, dual_obj =   General_LASSO(D, y, 0)
+    tend = time()
+    print "Solved in %f seconds" %(tend-tstart)
+    
+
+
+
+#    D, p, N = readfile( args.D)
+#    y, N_1, one = readfile( args.y)
+#    rho = args.rho
+#    if N != N_1:
+#        print "Dimensions do not match."  
+#    D = np.matrix(D).reshape((p,N))
+#    y = np.matrix(y).reshape((N, 1))
+#    sol, u, dual_obj =   General_LASSO(D, y, rho)
+#    fp = open(args.outfile,'w')
+#    fp.write(str(dual_obj))
+#    fp.close() 
 
 

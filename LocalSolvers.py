@@ -177,11 +177,10 @@ def General_LASSO(D, y, rho):
             break
         #u_hat = u_hat_minusB(lambda_k)
         B_S = update_boundary_set(B_S, status, coord, sgn_coord)
-        print lambda_k, k
         k = k+1 
     sol = np.zeros((N,1))
     u = np.zeros((P,1))
-    u_minus_B = LSQ(lambda_k)
+    u_minus_B = LSQ(rho)
     p_minus, N = u_minus_B.shape
 
     for i in range(p_minus):
@@ -189,9 +188,8 @@ def General_LASSO(D, y, rho):
         u[i_real] = u_minus_B[i]
     for (i, sgn_i) in B_S:
         u[i] = sgn_i * rho
-    print "The dual obj. is: ", eval_dual(u,D, y)
     sol = y- D.transpose()*u
-    return sol
+    return sol, u, eval_dual(u, D, y) 
     
         
     
@@ -749,7 +747,8 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('D', help='File contatining the matrix D')
     parser.add_argument('y', help='File containing the vector y')
-    
+    parser.add_argument('outfile', help='File to store the sol')
+    parser.add_argument('--rho', help='Values of rho', type=float,default=1.) 
 #    parser.add_argument('graph1',help = 'File containing first graph')
 #    parser.add_argument('graph2',help = 'File containing second graph')
 #    parser.add_argument('G',help = 'Constraint graph')
@@ -796,11 +795,14 @@ if __name__=="__main__":
 #    y = np.matrix( np.random.random(N) ).reshape(N,1)
     D, p, N = readfile( args.D)
     y, N_1, one = readfile( args.y)
-    if N != N_!:
+    rho = args.rho
+    if N != N_1:
         print "Dimensions do not match."  
     D = np.matrix(D).reshape((p,N))
     y = np.matrix(y).reshape((N, 1))
-    General_LASSO(D, y, 0.2)
-     
+    sol, u, dual_obj =   General_LASSO(D, y, rho)
+    fp = open(args.outfile,'w')
+    fp.write(str(dual_obj))
+    fp.close() 
 
 

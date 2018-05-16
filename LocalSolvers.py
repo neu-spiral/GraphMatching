@@ -1,6 +1,6 @@
 from cvxopt import spmatrix,matrix
 from cvxopt.solvers import qp,lp
-from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex
+from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex,readfile
 import numpy as np
 from numpy.linalg import solve as linearSystemSolver,inv
 import logging
@@ -121,6 +121,11 @@ def General_LASSO(D, y, rho):
             B_S_dict.pop( coord)
             B_S = B_S_dict.items()
         return B_S
+    def eval_dual(u, D, y):
+        """"Evaluate the dual objective."""
+        return 0.5 * np.linalg.norm(y-D.transpose()*u,2)**2 
+    def eval_prim(sol, D, y, rho):
+        return 0.5*np.linalg.norm(y-sol,2)**2+ rho*np.linalg.norm(D*sol,1)
         
     P, N = D.shape
     k = 0
@@ -172,19 +177,19 @@ def General_LASSO(D, y, rho):
             break
         #u_hat = u_hat_minusB(lambda_k)
         B_S = update_boundary_set(B_S, status, coord, sgn_coord)
+        print lambda_k, k
         k = k+1 
     sol = np.zeros((N,1))
     u = np.zeros((P,1))
     u_minus_B = LSQ(lambda_k)
     p_minus, N = u_minus_B.shape
 
-    print B_S, u_minus_B, trasnslate_itoj_minusB
-
     for i in range(p_minus):
         i_real = trasnslate_itoj_minusB[i]
         u[i_real] = u_minus_B[i]
     for (i, sgn_i) in B_S:
         u[i] = sgn_i * rho
+    print "The dual obj. is: ", eval_dual(u,D, y)
     sol = y- D.transpose()*u
     return sol
     
@@ -741,7 +746,10 @@ class LocalColumnProjectionSolver(LocalSolver):
 
 
 if __name__=="__main__":
-#    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('D', help='File contatining the matrix D')
+    parser.add_argument('y', help='File containing the vector y')
+    
 #    parser.add_argument('graph1',help = 'File containing first graph')
 #    parser.add_argument('graph2',help = 'File containing second graph')
 #    parser.add_argument('G',help = 'Constraint graph')
@@ -749,7 +757,7 @@ if __name__=="__main__":
 #    parser.add_argument('--rho',default=1.0,type=float, help='rho')
 #
 #
-#    args = parser.parse_args()
+    args = parser.parse_args()
 #    sc = SparkContext(appName='Local Solver Test')
 #    
 #    graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
@@ -781,11 +789,17 @@ if __name__=="__main__":
 #    newp,stats= FL2.solve(Z)
 #    end = time()
 #    print 'FL2 solve in',end-start,'seconds, stats:',stats
-    np.random.seed(1993)
-    P = 7
-    N = 8
-    D = np.matrix(np.random.random(P*N)).reshape(P,N)
-    y = np.matrix( np.random.random(N) ).reshape(N,1)
+#    np.random.seed(1993)
+#    P = 7
+#    N = 8
+#    D = np.matrix(np.random.random(P*N)).reshape(P,N)
+#    y = np.matrix( np.random.random(N) ).reshape(N,1)
+    D, p, N = readfile( args.D)
+    y, N_1, one = readfile( args.y)
+    if N != N_!:
+        print "Dimensions do not match."  
+    D = np.matrix(D).reshape((p,N))
+    y = np.matrix(y).reshape((N, 1))
     General_LASSO(D, y, 0.2)
      
 

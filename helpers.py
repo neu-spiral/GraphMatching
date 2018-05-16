@@ -3,7 +3,24 @@ import os
 import shutil
 #from google.cloud import storage
 
-
+def readfile(fname):
+    f = open(fname, 'r')
+    m = 0 
+    n = 0
+    mat = []
+    for l in f:
+        l_row = []
+        row = l.split()
+        n = len(row)
+        for elem in row:
+            l_row.append( eval(elem)   )
+        mat.append(l_row)
+        m = m+1
+    return mat, m , n
+        
+            
+        
+        
 def NoneToZero(x):
     if x is None:
         return 0.0

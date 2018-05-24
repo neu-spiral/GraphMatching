@@ -23,7 +23,7 @@ def SijGenerator(graph1,graph2,G,N):
 def General_LASSO(D, y, rho):
     """
         Solve the problm:
-             min_beta \|y-beta\|_2^2 + rho \|D beta\|_1
+             min_beta 0.5\|y-beta\|_2^2 + rho \|D beta\|_1
         It is the implementation  of Alg. 2 in THE SOLUTION PATH OF THE GENERALIZED LASSO, Tibshirani and Taylor.
         D is a numpy matrix. 
     """
@@ -201,7 +201,7 @@ def General_LASSO(D, y, rho):
     for (i, sgn_i) in B_S:
         u[i] = sgn_i * rho
     sol = y- D.transpose()*u
-    return sol, u, eval_dual(u, D, y) 
+    return sol 
     
         
     
@@ -441,10 +441,75 @@ class LocalL2Solver(LocalSolver):
 
     
 
-
-
-
 class LocalL1Solver(LocalSolver):
+    def __init__(self, objectives, rho=None):
+        objectives = dict(objectives)
+        #Create a dictioanry for translating variables to coordinates.
+        n_i = 0
+        translate_ij2coordinates = {}
+        P = len(objectives)
+        for key in objectives:
+            [S1, S2] = objectives[key]
+            for var in S1:
+                if var  not in translate_ij2coordinates:
+                    translate_ij2coordinates[var] = n_i
+                    n_i = n_i+1
+            for var in S2:
+                if var not in translate_ij2coordinates:
+                    translate_ij2coordinates[var] = n_i
+                    n_i = n_i+1
+        #Create the structure matrix D.
+        D = np.matrix( np.zeros((P, n_i)))
+        row = 0
+        for key in objectives:
+            [S1, S2] = objectives[key]
+            for var in S1:
+                D[row, translate_ij2coordinates[var]] = +1.
+            for var in  S2:
+                D[row, translate_ij2coordinates[var]] = -1.
+            row = row+1
+        self.objectives = objectives
+        self.D = D  
+        self.translate_ij2coordinates = translate_ij2coordinates
+        self.translate_coordinates2ij = dict([(translate_ij2coordinates[key], key) for key in translate_ij2coordinates])
+        self.variables = len(translate_ij2coordinates)
+        self.rho = rho
+    def solve(self,zbar=None,rho=None):
+        y = np.matrix( np.zeros((self.variables,1)))
+        for var in zbar:
+            y[self.translate_ij2coordinates[var]] = zbar[var]    
+        sol = General_LASSO(self.D, y, 1./rho)
+        newp = dict(  [(self.translate_coordinates2ij[i], float(sol[i])) for i in self.translate_coordinates2ij] )
+        stats = {}
+        localval = self.evaluate(newp)
+        stats['pobj'] = localval
+
+        if zbar!= None:
+           rhoerr = rho*sum( (pow((zbar[key]-newp[key]),2)  for key in newp ) )
+           stats['rhoerr'] = rhoerr
+           stats['proximalobj'] = localval+rhoerr
+        return newp,stats
+        
+            
+        
+        
+    def evaluate(self,z):
+        #Objective value without penalty
+        result = 0.0
+        for key in self.objectives:
+            l1,l2 = self.objectives[key]
+            tmp = 0.0
+            for zkey in l1:
+                tmp += z[zkey]
+            for zkey in l2:
+                tmp -= z[zkey]
+            result += np.abs(tmp)
+        return result
+        
+        
+
+
+class LocalL1Solver_Old(LocalSolver):
 
     def __init__(self,objectives,rho=None):
 	objectives = dict(objectives)
@@ -756,7 +821,7 @@ class LocalColumnProjectionSolver(LocalSolver):
 
 
 if __name__=="__main__":
-#    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 #    parser.add_argument('D', help='File contatining the matrix D')
 #    parser.add_argument('y', help='File containing the vector y')
 #    parser.add_argument('outfile', help='File to store the sol')
@@ -768,19 +833,61 @@ if __name__=="__main__":
 #    parser.add_argument('--rho',default=1.0,type=float, help='rho')
 #
 #
-#    args = parser.parse_args()
-#    sc = SparkContext(appName='Local Solver Test')
+    args = parser.parse_args()
+    sc = SparkContext(appName='Local Solver Test')
+    
+    sc.setLogLevel("OFF")
 #    
-#    graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
-#    graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
-#    G = sc.textFile(args.G,minPartitions=args.N).map(eval)
+   # graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
+   # graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
+   # G = sc.textFile(args.G,minPartitions=args.N).map(eval)
 #
-#    objectives = list(SijGenerator(graph1,graph2,G,args.N).collect())
+    
+    objectives = list(sc.textFile("data/ER64/objectives/part-00000").map(eval).partitionBy(5).collect())
+    print 'objectives,', objectives
 #    
-#    start = time()	
-#    L2 = LocalL2Solver(objectives,args.rho)
-#    end = time()
-#    print "L2 initialization in ",end-start,'seconds.'
+    #start = time()	
+    #L1 = LocalL1Solver(objectives,args.rho)
+    #end = time()
+    #print "L1 initialization in ",end-start,'seconds.'
+    
+    tstart = time()
+
+
+    objs = dict(objectives)
+    n_i = 0
+    translate_ij2coordinates = {}
+    P = len(objectives)
+    for key in objs:
+        [S1, S2] = objs[key]
+        for var in S1:
+           if var  not in translate_ij2coordinates:
+               translate_ij2coordinates [var] = n_i
+               n_i = n_i+1
+        for var in S2:
+           if var not in translate_ij2coordinates:
+               translate_ij2coordinates [var] = n_i
+               n_i = n_i+1
+    D = np.matrix( np.zeros((P, n_i)))
+    row = 0
+    for key in objs:
+        [S1, S2] = objs[key]
+        for var in S1:
+            D[row, translate_ij2coordinates[var]] = +1.
+        for var in  S2:
+            D[row, translate_ij2coordinates[var]] = -1.   
+        row = row+1
+           
+    
+    tend = time()
+#    Z = dict([(i,0.1) for i in range(n_i)])
+#    for i in Z:
+        
+       
+        
+    
+
+    
 #    
 #    start = time()	
 #    FL2 = FastLocalL2Solver(objectives,args.rho)
@@ -800,15 +907,21 @@ if __name__=="__main__":
 #    newp,stats= FL2.solve(Z)
 #    end = time()
 #    print 'FL2 solve in',end-start,'seconds, stats:',stats
-    np.random.seed(1993)
-    tstart = time()
-    P = 70
-    N = 80
-    D = np.matrix(np.random.random(P*N)).reshape(P,N)
-    y = np.matrix( np.random.random(N) ).reshape(N,1)
-    sol, u, dual_obj =   General_LASSO(D, y, 0)
-    tend = time()
-    print "Solved in %f seconds" %(tend-tstart)
+
+
+
+
+
+
+#    np.random.seed(1993)
+#    tstart = time()
+#    P = 70
+#    N = 80
+#    D = np.matrix(np.random.random(P*N)).reshape(P,N)
+#    y = np.matrix( np.random.random(N) ).reshape(N,1)
+#    sol, u, dual_obj =   General_LASSO(D, y, 0)
+#    tend = time()
+#    print "Solved in %f seconds" %(tend-tstart)
     
 
 

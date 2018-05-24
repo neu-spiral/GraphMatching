@@ -25,14 +25,13 @@ class ParallelSolver():
         """
         self.SolverClass=LocalSolverClass
         self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho).cache()    #LocalSolver class should implement class method initializeLocalVariables
-        self.rho = rho
         self.N = N
         self.silent=silent
         self.lean=lean
         self.varsToPartitions = self.PrimalDualRDD.flatMapValues( lambda  (solver,P,Phi,stats) : P.keys()).map(swap).partitionBy(self.N).cache() 
 
 
-    def joinAndAdapt(self,ZRDD, alpha):
+    def joinAndAdapt(self,ZRDD, alpha, rho):
         """ Given a ZRDD, adapt the local primal and dual variables. The former are updated via the proximal operator, the latter via gradient ascent.
         """
         toUnpersist = self.PrimalDualRDD         #Old RDD is to be uncached
@@ -45,14 +44,13 @@ class ParallelSolver():
         ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
         PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
 
-
         if not self.lean:
             oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Phi,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
             oldObjValue = PrimalDualOldZ.values().map(lambda ((solver,P,Phi,stats),Z): solver.evaluate(Z)).reduce(add)  #local solver should implement evaluate
 
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Phi,stats),Z): adaptDual(solver, P, Phi, stats, Z, alpha))
         ZbarAndNewDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Phi,Z): ( solver, dict( [(key, Z[key]-Phi[key]) for key in Z]), Phi ))
-        self.PrimalDualRDD = ZbarAndNewDual.mapValues( lambda  (solver,Zbar,Phi) : (solver,solver.solve(Zbar),Phi)).mapValues(lambda (solver,(P,stats),Phi): (solver,P,Phi,stats)).cache() #Solver should implement solve
+        self.PrimalDualRDD = ZbarAndNewDual.mapValues( lambda  (solver,Zbar,Phi) : (solver,solver.solve(Zbar, rho),Phi)).mapValues(lambda (solver,(P,stats),Phi): (solver,P,Phi,stats)).cache() #Solver should implement solve
         #Maybe partitioning is not needed?
         toUnpersist.unpersist()
   

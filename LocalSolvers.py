@@ -161,6 +161,8 @@ def General_LASSO(D, y, rho):
         if len(B_S)<P:
             D_minusB_sqrd = D_minusB*D_minusB.transpose()
             D_minusB_sqrd_psudoinv = np.linalg.pinv(D_minusB_sqrd)
+            ##Just for testing spark running time, PLEASE DELETE!!
+            #D_minusB_sqrd_psudoinv = D_minusB*D_minusB.transpose()
 
             #Compute hitting and leaving times
             t_hit = HitTimes(D_minusB_sqrd, D_minusB_sqrd_psudoinv, D_minusB, D_B_times_sgn, y, B_S, lambda_k, trasnslate_itoj_minusB)
@@ -186,7 +188,6 @@ def General_LASSO(D, y, rho):
         
         if lambda_k< rho:
             break
-        print lambda_k, k, coord, status
         #u_hat = u_hat_minusB(lambda_k)
         B_S = update_boundary_set(B_S, status, coord, sgn_coord)
         k = k+1 
@@ -201,7 +202,7 @@ def General_LASSO(D, y, rho):
     for (i, sgn_i) in B_S:
         u[i] = sgn_i * rho
     sol = y- D.transpose()*u
-    return sol 
+    return sol
     
         
     
@@ -821,7 +822,7 @@ class LocalColumnProjectionSolver(LocalSolver):
 
 
 if __name__=="__main__":
-    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+#    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 #    parser.add_argument('D', help='File contatining the matrix D')
 #    parser.add_argument('y', help='File containing the vector y')
 #    parser.add_argument('outfile', help='File to store the sol')
@@ -833,53 +834,51 @@ if __name__=="__main__":
 #    parser.add_argument('--rho',default=1.0,type=float, help='rho')
 #
 #
-    args = parser.parse_args()
-    sc = SparkContext(appName='Local Solver Test')
+#    args = parser.parse_args()
+#    sc = SparkContext(appName='Local Solver Test')
     
-    sc.setLogLevel("OFF")
+#    sc.setLogLevel("OFF")
 #    
    # graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
    # graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
    # G = sc.textFile(args.G,minPartitions=args.N).map(eval)
 #
     
-    objectives = list(sc.textFile("data/ER64/objectives/part-00000").map(eval).partitionBy(5).collect())
-    print 'objectives,', objectives
 #    
     #start = time()	
     #L1 = LocalL1Solver(objectives,args.rho)
     #end = time()
     #print "L1 initialization in ",end-start,'seconds.'
     
-    tstart = time()
-
-
-    objs = dict(objectives)
-    n_i = 0
-    translate_ij2coordinates = {}
-    P = len(objectives)
-    for key in objs:
-        [S1, S2] = objs[key]
-        for var in S1:
-           if var  not in translate_ij2coordinates:
-               translate_ij2coordinates [var] = n_i
-               n_i = n_i+1
-        for var in S2:
-           if var not in translate_ij2coordinates:
-               translate_ij2coordinates [var] = n_i
-               n_i = n_i+1
-    D = np.matrix( np.zeros((P, n_i)))
-    row = 0
-    for key in objs:
-        [S1, S2] = objs[key]
-        for var in S1:
-            D[row, translate_ij2coordinates[var]] = +1.
-        for var in  S2:
-            D[row, translate_ij2coordinates[var]] = -1.   
-        row = row+1
-           
-    
-    tend = time()
+#    tstart = time()
+#
+#
+#    objs = dict(objectives)
+#    n_i = 0
+#    translate_ij2coordinates = {}
+#    P = len(objectives)
+#    for key in objs:
+#        [S1, S2] = objs[key]
+#        for var in S1:
+#           if var  not in translate_ij2coordinates:
+#               translate_ij2coordinates [var] = n_i
+#               n_i = n_i+1
+#        for var in S2:
+#           if var not in translate_ij2coordinates:
+#               translate_ij2coordinates [var] = n_i
+#               n_i = n_i+1
+#    D = np.matrix( np.zeros((P, n_i)))
+#    row = 0
+#    for key in objs:
+#        [S1, S2] = objs[key]
+#        for var in S1:
+#            D[row, translate_ij2coordinates[var]] = +1.
+#        for var in  S2:
+#            D[row, translate_ij2coordinates[var]] = -1.   
+#        row = row+1
+#           
+#    
+#    tend = time()
 #    Z = dict([(i,0.1) for i in range(n_i)])
 #    for i in Z:
         
@@ -913,17 +912,17 @@ if __name__=="__main__":
 
 
 
-#    np.random.seed(1993)
-#    tstart = time()
-#    P = 70
-#    N = 80
-#    D = np.matrix(np.random.random(P*N)).reshape(P,N)
-#    y = np.matrix( np.random.random(N) ).reshape(N,1)
-#    sol, u, dual_obj =   General_LASSO(D, y, 0)
-#    tend = time()
-#    print "Solved in %f seconds" %(tend-tstart)
+    np.random.seed(1993)
+    tstart = time()
+    P = 10000
+    N = 1000
+    D = np.matrix(np.random.random(P*N)).reshape(P,N)
+    y = np.matrix( np.random.random(N) ).reshape(N,1)
+    sol, u, dual_obj =   General_LASSO(D, y, 1.)
+    tend = time()
+    print "Solved in %f seconds" %(tend-tstart)
     
-
+    
 
 
 #    D, p, N = readfile( args.D)

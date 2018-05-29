@@ -52,7 +52,7 @@ class ParallelSolver():
         ZbarAndNewDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Phi,Z): ( solver, dict( [(key, Z[key]-Phi[key]) for key in Z]), Phi ))
         self.PrimalDualRDD = ZbarAndNewDual.mapValues( lambda  (solver,Zbar,Phi) : (solver,solver.solve(Zbar, rho),Phi)).mapValues(lambda (solver,(P,stats),Phi): (solver,P,Phi,stats)).cache() #Solver should implement solve
         #Maybe partitioning is not needed?
-        toUnpersist.unpersist()
+        #toUnpersist.unpersist()
   
         if not self.lean:
 	    return (oldPrimalResidual,oldObjValue)

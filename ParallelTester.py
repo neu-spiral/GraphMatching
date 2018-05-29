@@ -5,6 +5,7 @@ from ParallelSolvers import ParallelSolver
 from pyspark import SparkContext, StorageLevel
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Parallel Graph Matching Test.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('outfile', type=str, help='File to store running ansd time.')
     parser.add_argument('data',type=str,help ="File containing data, either constraints or objectives.")
     parser.add_argument('--G', type=str,help="File containing the variables.")
     parser.add_argument('--solver',default='LocalL1Solver', help='Local Solver')
@@ -34,7 +35,7 @@ if __name__=="__main__":
   
     tstart = time.time()
     #Initiate the ParallelSolver object
-    RDDSolver_cls = ParallelSolver(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=N, rho=rho)
+    RDDSolver_cls = ParallelSolver(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight*2, N=N, rho=rho)
 
 
     #Create consensus variable, initialized to uniform assignment ignoring constraints
@@ -43,14 +44,22 @@ if __name__=="__main__":
     print "Iinitial row (Q/Xi) stats: %s" %RDDSolver_cls.logstats()
 
     for i in range(20):
-        print RDDSolver_cls.PrimalDualRDD.take(1)
         (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho)
 
         allvars = RDDSolver_cls.getVars(rho)
 
         ZRDD = allvars.reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)  ).mapValues(lambda (value,count): 1.0*value/count).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-        print "Iteration %d row (Q/Xi) stats: %s" % (i,RDDSolver_cls.logstats())
+        print "Iteration %d row (Q/Xi) stats: %s, objective value is %f residual is %f" % (i,RDDSolver_cls.logstats(),oldObjQ, oldPrimalResidualQ)
 
        
     tend = time.time()
+
+
+    #Write the results to file.
+    Num_vars = G.count()
+    fP = open(args.outfile, 'w')
+    fP.write('(veriables, time)\n')
+    fP.write('(%d, %f)' %(Num_vars, tend-tstart))
+    fP.close() 
+    
      

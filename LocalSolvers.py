@@ -161,8 +161,6 @@ def General_LASSO(D, y, rho):
         if len(B_S)<P:
             D_minusB_sqrd = D_minusB*D_minusB.transpose()
             D_minusB_sqrd_psudoinv = np.linalg.pinv(D_minusB_sqrd)
-            ##Just for testing spark running time, PLEASE DELETE!!
-            #D_minusB_sqrd_psudoinv = D_minusB*D_minusB.transpose()
 
             #Compute hitting and leaving times
             t_hit = HitTimes(D_minusB_sqrd, D_minusB_sqrd_psudoinv, D_minusB, D_B_times_sgn, y, B_S, lambda_k, trasnslate_itoj_minusB)
@@ -713,9 +711,10 @@ class LocalRowProjectionSolver(LocalSolver):
         """
         res=[]
         stats={}
+
+        stats['rows_gt_one']=0
         stats['vars_lt_zero']=0
         stats['vars_gt_one']=0
-        stats['rows_gt_one']=0
         for row in self.objectives:       
             zrow = {}
             for col in self.objectives[row]:
@@ -745,10 +744,10 @@ class LocalColumnProjectionSolver(LocalSolver):
     @classmethod
 
 
-    def initializeLocalVariables(SolverClass,Ginv,initvalue,N,rho):
+    def initializeLocalVariables(SolverClass,G,initvalue,N,rho):
         """ Produce an RDD containing solver, primal-dual variables, and some statistics.  
         """
-        def createLocalPrimalandDualColVariables(splitIndex, iterator):
+        def createLocalPrimalandDualColumnVariables(splitIndex, iterator):
             Primal = dict()
             Dual = dict()
             objectives = dict()
@@ -804,7 +803,7 @@ class LocalColumnProjectionSolver(LocalSolver):
             stats['vars_lt_zero']  += sum( (val<0.0 for val in xcol.values()) )
             stats['vars_gt_one']  += sum( (val>1.0 for val in xcol.values()) )
             stats['cols_gt_one']  += sum(xcol.values()) > 1.0
-            res = res.extend(xcol.items())
+            res = res + xcol.items()
         return (dict(res),stats) 
 
     def evaluate(self,z):
@@ -812,7 +811,7 @@ class LocalColumnProjectionSolver(LocalSolver):
 
         """
         for col in self.objectives:       
-            for row in self.objectives[row]:
+            for row in self.objectives[col]:
                 if z[(row,col)]<0.0 or z[(row,col)]>1.0:
                     return False
             totsum = sum( (z[(row,col)] for row in self.objectives[col] ) )

@@ -9,9 +9,23 @@ from debug import logger,dumpPPhiRDD,dumpBasic
 from pprint import pformat
 import os
 import shutil
+def testPositivity(rdd):
+    '''Test whether vals are positive
+    '''
+    val,count= rdd.map(lambda ((i,j),val): (val>=0.0,1 )).reduce(lambda (val1,ct1),(val2,ct2) : (val1+val2,ct1+ct2)  )
+    return val/count
 
 
-
+def testSimplexCondition(rdd,dir='row'):
+    '''Tests whether the row condition holds
+    '''
+    if dir=='row':
+        sums=rdd.map(lambda ((i,j),val): (i,val) ).reduceByKey(add).values()
+    elif dir=='column':
+        sums=rdd.map(lambda ((i,j),val): (j,val) ).reduceByKey(add).values()
+    minsum = sums.reduce(min)
+    maxsum = sums.reduce(max)
+    return minsum, maxsum
 
 def evalSolvers(cls_args, P_vals, Phi_vals, stats, dumped_cls):
     solvers_cls = pickle.loads(dumped_cls)
@@ -96,6 +110,8 @@ if __name__=="__main__":
         sc.setLogLevel("OFF")
 
     has_linear = args.linear_term is not None
+    if not has_linear:
+        oldLinObjective = 0.
     
     #Read constraint graph
     G = sc.textFile(args.constraintfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
@@ -138,7 +154,7 @@ if __name__=="__main__":
     QXi = ParallelSolver(LocalRowProjectionSolver,G,uniformweight,args.N,args.rhoQ,args.alpha,lean=args.lean)
     logger.info('Row RDD (Q/Xi) RDD stats: '+QXi.logstats() )
 
-    TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.N,args.rhoT,args.alpha,lean=args,lean)
+    TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.N,args.rhoT,args.alpha,lean=args.lean)
     logger.info('Column RDD (T/Psi) RDD stats: '+TPsi.logstats() )
 
 
@@ -154,18 +170,18 @@ if __name__=="__main__":
     trace = {}
     for iteration in range(args.maxiter):
 
-        (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD)
+        (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, args.rhoQ)
         logger.info("Iteration %d row (Q/Xi) stats: %s" % (iteration,QXi.logstats())) 
-        (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD)
+        (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT)
         logger.info("Iteration %d column (T/Psi) stats: %s" % (iteration,TPsi.logstats())) 
-        (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD)
+        (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP)
         logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
 
       
 	oldZ = ZRDD
-	rowvars = QXi.getVars()
-        columnvars = TPsi.getVars()
-	localvars = PPhi.getVars()
+	rowvars = QXi.getVars(args.rhoQ)
+        columnvars = TPsi.getVars(args.rhoT)
+	localvars = PPhi.getVars(args.rhoP)
 	allvars = localvars.union(rowvars).union(columnvars)
 
 	if DEBUG:
@@ -191,12 +207,12 @@ if __name__=="__main__":
 	   Zstats['DRES'] = dualresidual
 
 	   #Store primal residuals:
-	   Zstats['PRES'] = oldprimalresidualP
-	   Zstats['QRES'] = oldprimalresidualQ
-	   Zstats['TRES'] = oldprimalresidualT
+	   Zstats['PRES'] = oldPrimalResidualP
+	   Zstats['QRES'] = oldPrimalResidualQ
+	   Zstats['TRES'] = oldPrimalResidualT
            #Z obj
-	   Zstats['OLDOBJ'] = oldObjValue + oldLinObjective
-	   Zstats['OLDNOLIN'] = oldObjValue
+	   Zstats['OLDOBJ'] = oldObjP + oldLinObjective
+	   Zstats['OLDNOLIN'] = oldObjP
 	   Zstats['OLDLIN'] = oldLinObjective
    
 

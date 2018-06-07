@@ -19,7 +19,18 @@ def readfile(fname):
     return mat, m , n
         
             
-        
+def writeMat2File(fname, A):
+    m,n = A.shape
+    fP = open(fname, 'w')
+    for i in range(m):
+        l = ""
+        for j in range(n):
+            if j<n-1:
+                fP.write(str(A[i,j])+'\t')
+            elif j==n-1:
+                fP.write(str(A[i,j])+'\n')          
+    fP.close()
+    
         
 def NoneToZero(x):
     if x is None:

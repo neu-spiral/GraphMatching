@@ -1,6 +1,6 @@
-from cvxopt import spmatrix,matrix
-from cvxopt.solvers import qp,lp
-from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex,readfile
+from cvxopt import spmatrix,matrix,solvers
+#from cvxopt.solvers import qp,lp
+from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex,readfile, writeMat2File
 import numpy as np
 from numpy.linalg import solve as linearSystemSolver,inv
 import logging
@@ -11,6 +11,7 @@ from pprint import pformat
 from time import time
 import argparse
 from pyspark import SparkContext
+
 
 def SijGenerator(graph1,graph2,G,N):
     #Compute S_ij^1 and S_ij^2
@@ -471,10 +472,10 @@ class LocalL1Solver(LocalSolver):
         self.D = D  
         self.translate_ij2coordinates = translate_ij2coordinates
         self.translate_coordinates2ij = dict([(translate_ij2coordinates[key], key) for key in translate_ij2coordinates])
-        self.variables = len(translate_ij2coordinates)
+        self.num_variables = len(translate_ij2coordinates)
         self.rho = rho
     def solve(self,zbar=None,rho=None):
-        y = np.matrix( np.zeros((self.variables,1)))
+        y = np.matrix( np.zeros((self.num_variables,1)))
         for var in zbar:
             y[self.translate_ij2coordinates[var]] = zbar[var]    
         sol = General_LASSO(self.D, y, 1./rho)
@@ -504,6 +505,8 @@ class LocalL1Solver(LocalSolver):
                 tmp -= z[zkey]
             result += np.abs(tmp)
         return result
+    def variables(self):
+        return self.translate_ij2coordinates.keys()
         
         
 
@@ -546,20 +549,22 @@ class LocalL1Solver_Old(LocalSolver):
 	    row = row+2
 	
         # Add [0,1] constraints
-        for key in pvariables:
-	    ppos = pvariables[key]
-	    tuples.append( (row,ppos,-1.0)  )
-	    row += 1
+        #for key in pvariables:
+        #    ppos = pvariables[key]
+        #    tuples.append( (row,ppos,-1.0)  )
+        #    row += 1
 
-        for key in pvariables:
-	    ppos = pvariables[key]
-	    tuples.append( (row,ppos,1.0)  )
-	    row += 1
+        #for key in pvariables:
+        #    ppos = pvariables[key]
+        #    tuples.append( (row,ppos,1.0)  )
+        #    row += 1
 
         # Matrices named as in in cvxopt.solver.qp
 	I,J,vals = zip(*tuples)
 	self.G = spmatrix(vals,I,J)  
-	self.h = matrix([0.0]*(row-nump)+[1.0]*nump,size=(row,1))
+	#self.h = matrix([0.0]*(row-nump)+[1.0]*nump,size=(row,1))
+        ## Try without [0,1] constraint
+        self.h = matrix([0.0]*row, size=(row,1))
 	self.P = spmatrix(1.0,range(numt,numt+nump),range(numt,numt+nump))
 	
 	self.objectives = objectives
@@ -574,14 +579,15 @@ class LocalL1Solver_Old(LocalSolver):
 	    rho = self.rho
    
 	q = matrix(0.0,size=(self.numt+self.nump, 1))
+        solvers.options['show_progress'] = False
         for i in range(self.numt):
-	    q[i] = 0.5
+	    q[i] = 1.0
 	for key,ppos in self.pvariables.iteritems():
 	    if zbar!=None:
 		q[ppos] = -rho*zbar[key]
 	    else:
 		q[ppos] = 0.0
-	    result = qp(rho*self.P,q,self.G,self.h)
+	    result = solvers.qp(rho*self.P,q,self.G,self.h)
 	
 	sol = result['x']
 	newp= dict( ( (key, sol[self.pvariables[key]]  )  for  key in self.pvariables ))	
@@ -821,35 +827,39 @@ class LocalColumnProjectionSolver(LocalSolver):
 
 
 if __name__=="__main__":
-#    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 #    parser.add_argument('D', help='File contatining the matrix D')
 #    parser.add_argument('y', help='File containing the vector y')
 #    parser.add_argument('outfile', help='File to store the sol')
 #    parser.add_argument('--rho', help='Values of rho', type=float,default=1.) 
+    parser.add_argument('objectives',type=str,help='File containing objectives.')
 #    parser.add_argument('graph1',help = 'File containing first graph')
 #    parser.add_argument('graph2',help = 'File containing second graph')
 #    parser.add_argument('G',help = 'Constraint graph')
-#    parser.add_argument('--N',default=1,type=int, help='Level of parallelism')
-#    parser.add_argument('--rho',default=1.0,type=float, help='rho')
+    parser.add_argument('--N',default=1,type=int, help='Level of parallelism')
+    parser.add_argument('--rho',default=1.0,type=float, help='rho')
 #
 #
-#    args = parser.parse_args()
-#    sc = SparkContext(appName='Local Solver Test')
+    args = parser.parse_args()
+    sc = SparkContext(appName='Local Solver Test',master='local[40]')
     
-#    sc.setLogLevel("OFF")
-#    
-   # graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
-   # graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
-   # G = sc.textFile(args.G,minPartitions=args.N).map(eval)
-#
+    sc.setLogLevel("OFF")
+
+    objectives = dict( sc.textFile(args.objectives, minPartitions=args.N).map(eval).collect() )
     
 #    
-    #start = time()	
-    #L1 = LocalL1Solver(objectives,args.rho)
-    #end = time()
-    #print "L1 initialization in ",end-start,'seconds.'
+#    graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
+#    graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
+#    G = sc.textFile(args.G,minPartitions=args.N).map(eval)
+#
     
-#    tstart = time()
+#    
+#    start = time()	
+#    L1 = LocalL1Solver(objectives,args.rho)
+#    end = time()
+#    print "L1 initialization in ",end-start,'seconds.'
+    
+ #   tstart = time()
 #
 #
 #    objs = dict(objectives)
@@ -887,18 +897,43 @@ if __name__=="__main__":
 
     
 #    
-#    start = time()	
-#    FL2 = FastLocalL2Solver(objectives,args.rho)
-#    end = time()
-#    print "FL2 initialization in ",end-start,'seconds.'
-#
-#    n = len(L2.variables())
-#    Z = dict([ (var,1.0/n) for var in L2.variables()])
+    
+    np.random.seed(1993)
+    start = time()	
+    L1 = LocalL1Solver(objectives,args.rho)
+    end = time()
+    print "L1 initialization in ",end-start,'seconds.'
+
+
+    n = len(L1.variables())
+    Z = dict([ (var,float(np.random.random(1))) for var in L1.variables()])
+
+    #Write the structure matrix, as well as the vector Z
+    D = L1.D
+    print D.shape
+    y = np.matrix( np.zeros((L1.num_variables,1)))
+    for var in Z:
+        y[L1.translate_ij2coordinates[var]] = Z[var]
+    writeMat2File('data/D_y/D_part',D)
+    writeMat2File('data/D_y/y_part',y)
 #    
-#    start = time()	
-#    newp,stats= L2.solve(Z)
-#    end = time()
-#    print 'L2 solve in',end-start,'seconds, stats:',stats
+    start = time()	
+    newp,stats= L1.solve(Z, args.rho)
+    end = time()
+    print 'L1 solve in',end-start,'seconds, stats:',stats
+
+
+    start = time()
+    L1_Old = LocalL1Solver_Old(objectives,args.rho)
+    end = time()
+    print "L1 Old initialization in ",end-start,'seconds.'
+
+    start = time()      
+    newp_Old,stats= L1_Old.solve(Z, args.rho)
+    end = time()
+    print 'L1 Old solve in',end-start,'seconds, stats:',stats
+   
+    
 #	
 #	
 #    start = time()	
@@ -911,17 +946,17 @@ if __name__=="__main__":
 
 
 
-    np.random.seed(1993)
-    tstart = time()
-    P = 10000
-    N = 1000
-    D = np.matrix(np.random.random(P*N)).reshape(P,N)
-    y = np.matrix( np.random.random(N) ).reshape(N,1)
-    sol, u, dual_obj =   General_LASSO(D, y, 1.)
-    tend = time()
-    print "Solved in %f seconds" %(tend-tstart)
-    
-    
+ #   np.random.seed(1993)
+ #   tstart = time()
+ #   P = 10000
+ #   N = 1000
+ #   D = np.matrix(np.random.random(P*N)).reshape(P,N)
+ #   y = np.matrix( np.random.random(N) ).reshape(N,1)
+ #   sol, u, dual_obj =   General_LASSO(D, y, 1.)
+ #   tend = time()
+ #   print "Solved in %f seconds" %(tend-tstart)
+ #   
+ #   
 
 
 #    D, p, N = readfile( args.D)

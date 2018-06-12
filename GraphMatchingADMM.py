@@ -152,13 +152,16 @@ if __name__=="__main__":
 
        #Resume iterations from prevsiously dumped iterations. 
         ZRDD = sc.textFile(args.initRDD+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-        PPhi = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
+        PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
+        PPhi = ParallelSolver(SolverClass,objectives,uniformweight,args.N,args.rhoP,args.alpha,lean=args.lean, RDD=PPhi_RDD)
         logger.info('Partitioned data (P/Phi) RDD stats: '+PPhi.logstats() )
 
-        QXi = sc.textFile(args.initRDD+"_QXiRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        QXi_RDD = sc.textFile(args.initRDD+"_QXiRDD").map(eval).partitionBy(args.N).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalRowProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
+        QXi = ParallelSolver(LocalRowProjectionSolver,G,uniformweight,args.N,args.rhoQ,args.alpha,lean=args.lean, RDD=QXi_RDD)
         logger.info('Row RDD (Q/Xi) RDD stats: '+QXi.logstats() )
 
-        TPsi = sc.textFile(args.initRDD+"_TPsiRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        TPsi_RDD = sc.textFile(args.initRDD+"_TPsiRDD").map(eval).partitionBy(args.N).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalColumnProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
+        TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.N,args.rhoT,args.alpha,lean=args.lean, RDD=TPsi_RDD)
         logger.info('Column RDD (T/Psi) RDD stats: '+TPsi.logstats() )
 
     else:

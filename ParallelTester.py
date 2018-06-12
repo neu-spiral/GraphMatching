@@ -16,6 +16,8 @@ if __name__=="__main__":
     parser.add_argument('--alpha',default=1.0,type=float, help='Alpha value, used for dual variables')
     parser.add_argument('--maxiters',default=20, type=int, help='Max iterations to run the algorithm.')
     parser.add_argument('--logfile',type=str,help='Log file to keep track of the stats.')
+    parser.add_argument('--checkpoint_freq',default=15,type=int,help='Number of iterations between check points')
+    parser.add_argument('--checkpointdir',default='checkpointdir',type=str,help='Directory to be used for checkpointing')
     parser.set_defaults(undirected=True)
 
     args = parser.parse_args()
@@ -37,8 +39,12 @@ if __name__=="__main__":
 
 
 
-    sc = SparkContext()
+    sc = SparkContext(appName="Parallel Tester for %s using %d partitions" %(args.solver, args.N))
     sc.setLogLevel("OFF")
+    sc.setCheckpointDir(args.checkpointdir)
+
+
+
     SolverClass = eval(args.solver)
     N = args.N
     uniformweight = 1/2000.
@@ -67,7 +73,10 @@ if __name__=="__main__":
         allvars = RDDSolver_cls.getVars(rho)
 
         ZRDD = allvars.reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)  ).mapValues(lambda (value,count): 1.0*value/count).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-        logger.info("Iteration %d row (Q/Xi) stats: %s, objective value is %f residual is %f" % (i,RDDSolver_cls.logstats(),oldObjQ, oldPrimalResidualQ))
+        logger.info("Iteration %d row (Q/Xi) stats: %s, objective value is %f residual is %f, time is %f" % (i,RDDSolver_cls.logstats(),oldObjQ, oldPrimalResidualQ, time.time()-tstart))
+        if i!=0 and i % args.checkpoint_freq==0:
+            ZRDD.checkpoint()
+            RDDSolver_cls.PrimalDualRDD.checkpoint()
 
        
     tend = time.time()

@@ -65,6 +65,9 @@ class ParallelSolver():
         rdd = self.PrimalDualRDD
         
         statsonly =rdd.map(lambda (partitionid, (solver,P,Phi,stats)): stats).cache()
+        #Checkpoint the RDD
+       # if iteration!=0 and iteration % checkointing_freq == 0:
+       #     statsonly.checkpoint()
         stats = statsonly.reduce(lambda x,y:  mergedicts(x,y))
         minstats = statsonly.reduce(lambda x,y:  mergedicts(x,y,min))
         maxstats = statsonly.reduce(lambda x,y:  mergedicts(x,y,max))

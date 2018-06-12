@@ -29,14 +29,23 @@ if __name__=="__main__":
     parser.add_argument('--graph_degree',default=4, type=int, help='Degree. Used by balanced_tree, regular, barabasi_albert, watts_strogatz')
     parser.add_argument('--graph_p',default=0.10, type=float, help='Probability, used in erdos_renyi, watts_strogatz')
     parser.add_argument('output',help="outputfile")
+    parser.add_argument('--sparseG',action='store_true',help='When passed create graphs with the probability set to 0.3*log(graph_size)/graph_size')
+
+    parser.set_defaults(sparseG=False)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO) 
     random.seed(args.random_seed)
     np.random.seed(args.random_seed+2015 )
+
+
+    if args.sparseG:
+        graph_p = 0.3*np.log(args.graph_size)/args.graph_size
+    else:
+        graph_p = args.graph_p
     
     def graphGenerator():
 	if args.graph_type == "erdos_renyi":
-	    return networkx.erdos_renyi_graph(args.graph_size,args.graph_p)
+	    return networkx.erdos_renyi_graph(args.graph_size,graph_p)
 	if args.graph_type == "balanced_tree":
 	    ndim = int(np.ceil(np.log(args.graph_size)/np.log(args.graph_degree)))
 	    return networkx.balanced_tree(args.graph_degree,ndim)
@@ -63,7 +72,7 @@ if __name__=="__main__":
 	if args.graph_type =='barabasi_albert':
 	    return networkx.barabasi_albert_graph(args.graph_size,args.graph_degree)
 	if args.graph_type =='watts_strogatz':
-	    return networkx.connected_watts_strogatz_graph(args.graph_size,args.graph_degree,args.graph_p)
+	    return networkx.connected_watts_strogatz_graph(args.graph_size,args.graph_degree,graph_p)
 	if args.graph_type =='regular':
 	    return networkx.random_regular_graph(args.graph_degree,args.graph_size)
 	if args.graph_type =='powerlaw_tree':

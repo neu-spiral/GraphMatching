@@ -58,12 +58,12 @@ if __name__=="__main__":
     parser.add_argument('--dump_trace_freq',default=10,type=int,help='Number of iterations between trace dumps')
     parser.add_argument('--checkpoint_freq',default=10,type=int,help='Number of iterations between check points')
     parser.add_argument('--checkpointdir',default='checkpointdir',type=str,help='Directory to be used for checkpointing')
+    parser.add_argument('--initRDD',default=None, type=str, help='File name, where the RDDs are dumped.')
 
     parser.add_argument('--dumpRDDs', dest='dumpRDDs', action='store_true',help='Dump auxiliary RDDs beyond Z')
     parser.add_argument('--no-dumpRDDs', dest='dumpRDDs', action='store_false',help='Do not dump auxiliary RDDs beyond Z')
     parser.set_defaults(dumpRDDs=True)
 
-    parser.add_argument('--init',default="", help="Initialization files for RDDs. It is assumed all files have the same name, passed as argument, with a _XXX indicating the RDD in the end, e.g.,filaname_ZRDD for ZRDD.")
 	
     parser.set_defaults(silent=False)
     parser.add_argument('--silent',dest="silent",action='store_true',help='Run in efficient, silent mode, with final Z as sole output. Skips  computation of objective value and residuals duning exection and supresses both monitoring progress logging and trace dumping. Overwrites verbosity level to ERROR')
@@ -147,15 +147,31 @@ if __name__=="__main__":
 	#Create local primal and dual variables  
 
 
-    #Create primal and dual variables and associated solvers
-    PPhi=ParallelSolver(SolverClass,objectives,uniformweight,args.N,args.rhoP,args.alpha,lean=args.lean)
-    logger.info('Partitioned data (P/Phi) RDD stats: '+PPhi.logstats() )    
-      
-    QXi = ParallelSolver(LocalRowProjectionSolver,G,uniformweight,args.N,args.rhoQ,args.alpha,lean=args.lean)
-    logger.info('Row RDD (Q/Xi) RDD stats: '+QXi.logstats() )
 
-    TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.N,args.rhoT,args.alpha,lean=args.lean)
-    logger.info('Column RDD (T/Psi) RDD stats: '+TPsi.logstats() )
+    if args.initRDD != None:
+
+       #Resume iterations from prevsiously dumped iterations. 
+        ZRDD = sc.textFile(args.initRDD+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        PPhi = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
+        logger.info('Partitioned data (P/Phi) RDD stats: '+PPhi.logstats() )
+
+        QXi = sc.textFile(args.initRDD+"_QXiRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        logger.info('Row RDD (Q/Xi) RDD stats: '+QXi.logstats() )
+
+        TPsi = sc.textFile(args.initRDD+"_TPsiRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        logger.info('Column RDD (T/Psi) RDD stats: '+TPsi.logstats() )
+
+    else:
+
+       #Create primal and dual variables and associated solvers
+        PPhi=ParallelSolver(SolverClass,objectives,uniformweight,args.N,args.rhoP,args.alpha,lean=args.lean)
+        logger.info('Partitioned data (P/Phi) RDD stats: '+PPhi.logstats() )    
+      
+        QXi = ParallelSolver(LocalRowProjectionSolver,G,uniformweight,args.N,args.rhoQ,args.alpha,lean=args.lean)
+        logger.info('Row RDD (Q/Xi) RDD stats: '+QXi.logstats() )
+
+        TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.N,args.rhoT,args.alpha,lean=args.lean)
+        logger.info('Column RDD (T/Psi) RDD stats: '+TPsi.logstats() )
 
 
     #Create consensus variable, initialized to uniform assignment ignoring constraints
@@ -167,6 +183,7 @@ if __name__=="__main__":
 
     start_timing = time.time()	
     last_time = start_timing
+    dump_time = 0.
     trace = {}
     for iteration in range(args.maxiter):
 
@@ -189,7 +206,12 @@ if __name__=="__main__":
 	
 	ZRDD = allvars.reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)  ).mapValues(lambda (value,count): 1.0*value/count).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
 	if iteration % args.checkpoint_freq == 0 and iteration != 0:
+            logger.info("Checkpointing RDDs")
 	    ZRDD.checkpoint()
+            PPhi.PrimalDualRDD.checkpoint()
+            QXi.PrimalDualRDD.checkpoint()
+            TPsi.PrimalDualRDD.checkpoint()
+            logger.info("Checkpointing RDDs done.")
 	
 	if DEBUG:
 	   logger.debug("Iteration %d Z is:\n%s" %(iteration,pformat(list(ZRDD.collect()),width=30)) )
@@ -224,25 +246,29 @@ if __name__=="__main__":
              
   
 	if not args.silent: #under "lean", still output some basic stats
-	   now = time.time()
-           Zstats['TIME'] = now-start_timing
-           Zstats['IT_TIME'] = now-last_time
+	   now = time.time() 
+           Zstats['TIME'] = now-start_timing-dump_time
+           Zstats['IT_TIME'] = now-last_time-dump_time
 	   last_time = now
            logger.info("Iteration %d  time is %f sec, average time per iteration is %f sec, total time is %f " % (iteration,Zstats['IT_TIME'],Zstats['TIME']/(iteration+1.0),Zstats['TIME'])) 
 	   trace[iteration] = Zstats
 	
         #if not (args.silent or args.lean):
+        dump_time = 0.
         if not (args.silent):
-	   if iteration % args.dump_trace_freq == 0 and iteration != 0:
+	    if iteration % args.dump_trace_freq == 0:
+                dump_st_time = time.time()
                 with open(args.outputfile+"_trace",'wb') as f:
             	    pickle.dump((args,trace),f)
-    	        safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD_%diterations" %iteration,args.driverdump)
+    	        safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
 		
                 if args.dumpRDDs:
-		    safeWrite(PPhiRDD,args.outputfileZRDD+"_PPhiRDD_%diterations" %iteration,args.driverdump)
-		    safeWrite(QXiRDD,args.outputfileZRDD+"_QXiRDD_%diterations" %iteration,args.driverdump)
-		    safeWrite(TPsiRDD,args.outputfileZRDD+"_TPsiRDD_%diterations" %iteration,args.driverdump)
+		    safeWrite(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
+		    safeWrite(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
+		    safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
 		#log.info("ZRDD is "+str(ZRDD.collect()))
+                dump_end_time = time.time()
+                dump_time = dump_end_time - dump_st_time
  
 	oldZ.unpersist()
 	

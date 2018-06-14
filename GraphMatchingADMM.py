@@ -12,7 +12,13 @@ import shutil
 def testPositivity(rdd):
     '''Test whether vals are positive
     '''
-    val,count= rdd.map(lambda ((i,j),val): (val>=0.0,1 )).reduce(lambda (val1,ct1),(val2,ct2) : (val1+val2,ct1+ct2)  )
+    def fun_test_positivity(val):
+        if val>0.0:
+            out = 1.
+        else:
+            out = 0.
+        return (out, 1.)
+    val,count= rdd.map(lambda ((i,j),val): fun_test_positivity(val)).reduce(lambda (val1,ct1),(val2,ct2) : (val1+val2,ct1+ct2)  )
     return val/count
 
 
@@ -48,6 +54,7 @@ if __name__=="__main__":
     parser.add_argument('--problemsize',default=1000,type=int, help='Problem size. Used to initialize uniform allocation, needed when objectivefile is passed')
     parser.add_argument('--solver',default='LocalL1Solver', help='Local Solver',choices=['LocalL1Solver','LocalL2Solver','FastLocalL2Solver'])
     parser.add_argument('--debug',default='INFO', help='Verbosity level',choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
+    parser.add_argument('--logLevel',default='INFO', help='Verbosity level',choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument('--logfile',default='graphmatching.log',help='Log file')
     parser.add_argument('--maxiter',default=5,type=int, help='Maximum number of iterations')
     parser.add_argument('--N',default=8,type=int, help='Number of partitions')
@@ -95,7 +102,7 @@ if __name__=="__main__":
     if args.silent:
 	level = "logging.ERROR"
 
-    logger.setLevel(eval(level))
+    logger.setLevel(eval("logging."+args.logLevel))
     clearFile(args.logfile)
     fh = logging.FileHandler(args.logfile)
     fh.setLevel(eval(level))
@@ -152,17 +159,17 @@ if __name__=="__main__":
 
        #Resume iterations from prevsiously dumped iterations. 
         ZRDD = sc.textFile(args.initRDD+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-        PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
+        PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
         PPhi = ParallelSolver(SolverClass,objectives,uniformweight,args.N,args.rhoP,args.alpha,lean=args.lean, RDD=PPhi_RDD)
-        logger.info('Partitioned data (P/Phi) RDD stats: '+PPhi.logstats() )
+        logger.info('From the last iteration solver (P/Phi) RDD stats: '+PPhi.logstats() )
 
-        QXi_RDD = sc.textFile(args.initRDD+"_QXiRDD").map(eval).partitionBy(args.N).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalRowProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
+        QXi_RDD = sc.textFile(args.initRDD+"_QXiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalRowProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
         QXi = ParallelSolver(LocalRowProjectionSolver,G,uniformweight,args.N,args.rhoQ,args.alpha,lean=args.lean, RDD=QXi_RDD)
-        logger.info('Row RDD (Q/Xi) RDD stats: '+QXi.logstats() )
+        logger.info('From the last iteration row (Q/Xi) RDD stats: '+QXi.logstats() )
 
-        TPsi_RDD = sc.textFile(args.initRDD+"_TPsiRDD").map(eval).partitionBy(args.N).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalColumnProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
+        TPsi_RDD = sc.textFile(args.initRDD+"_TPsiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalColumnProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
         TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.N,args.rhoT,args.alpha,lean=args.lean, RDD=TPsi_RDD)
-        logger.info('Column RDD (T/Psi) RDD stats: '+TPsi.logstats() )
+        logger.info('From the last iteration column (T/Psi) RDD stats: '+TPsi.logstats() )
 
     else:
 
@@ -177,8 +184,8 @@ if __name__=="__main__":
         logger.info('Column RDD (T/Psi) RDD stats: '+TPsi.logstats() )
 
 
-    #Create consensus variable, initialized to uniform assignment ignoring constraints
-    ZRDD = G.map(lambda (i,j):((i,j),uniformweight)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        #Create consensus variable, initialized to uniform assignment ignoring constraints
+        ZRDD = G.map(lambda (i,j):((i,j),uniformweight)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
 
     	
     end_timing = time.time()
@@ -259,7 +266,7 @@ if __name__=="__main__":
         #if not (args.silent or args.lean):
         dump_time = 0.
         if not (args.silent):
-	    if iteration % args.dump_trace_freq == 0:
+	    if iteration % args.dump_trace_freq == 0 and iteration>0:
                 dump_st_time = time.time()
                 with open(args.outputfile+"_trace",'wb') as f:
             	    pickle.dump((args,trace),f)

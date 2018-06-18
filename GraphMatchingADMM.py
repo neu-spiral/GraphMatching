@@ -5,6 +5,7 @@ from operator import add,and_
 from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver
 from ParallelSolvers import ParallelSolver
 from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero
+from helpers_GCP import safeWrite_GCP
 from debug import logger,dumpPPhiRDD,dumpBasic
 from pprint import pformat
 import os

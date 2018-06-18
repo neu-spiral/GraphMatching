@@ -1,5 +1,5 @@
-from cvxopt import spmatrix,matrix
-from cvxopt.solvers import qp,lp
+#from cvxopt import spmatrix,matrix
+#from cvxopt.solvers import qp,lp
 from helpers import identityHash,swap,mergedicts,identityHash
 import numpy as np
 from numpy.linalg import solve as linearSystemSolver,inv

@@ -1,4 +1,4 @@
-from cvxopt import spmatrix,matrix,solvers
+#from cvxopt import spmatrix,matrix,solvers
 #from cvxopt.solvers import qp,lp
 from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex,readfile, writeMat2File
 import numpy as np

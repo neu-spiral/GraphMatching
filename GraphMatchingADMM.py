@@ -216,6 +216,8 @@ if __name__=="__main__":
 	   logger.debug("Iteration %d all var pairs is:\n%s" %(iteration,pformat(list(allvars.sortByKey().collect()),width=30)) )
 	
 	ZRDD = allvars.reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)  ).mapValues(lambda (value,count): 1.0*value/count).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+       #Maybe this is more efficient!
+      #  ZRDD = allvars.partitionBy(args.N).reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)).mapValues(lambda (value,count): 1.0*value/count).persist(StorageLevel.MEMORY_ONLY)
 	if iteration % args.checkpoint_freq == 0 and iteration != 0:
             logger.info("Checkpointing RDDs")
 	    ZRDD.checkpoint()
@@ -281,7 +283,7 @@ if __name__=="__main__":
                 dump_end_time = time.time()
                 dump_time = dump_end_time - dump_st_time
  
-	oldZ.unpersist()
+	#oldZ.unpersist()
 	
      
     end_timing = time.time()
@@ -292,6 +294,9 @@ if __name__=="__main__":
 	    pickle.dump((args,trace),f)
 
     safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
+    safeWrite(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
+    safeWrite(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
+    safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
     
 
     

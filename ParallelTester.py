@@ -58,6 +58,7 @@ if __name__=="__main__":
   
   
     tstart = time.time()
+    tlast = tstart
     #Initiate the ParallelSolver object
     RDDSolver_cls = ParallelSolver(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight*2, N=N, rho=rho)
 
@@ -68,16 +69,18 @@ if __name__=="__main__":
     logger.info("Iinitial row (Q/Xi) stats: %s" %RDDSolver_cls.logstats())
 
     for i in range(args.maxiters):
-        (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho)
+        chckpnt = (i!=0 and i % args.checkpoint_freq==0)
+        OldZ=ZRDD
+        (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt)
 
         allvars = RDDSolver_cls.getVars(rho)
 
         ZRDD = allvars.reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)  ).mapValues(lambda (value,count): 1.0*value/count).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-        logger.info("Iteration %d row (Q/Xi) stats: %s, objective value is %f residual is %f, time is %f" % (i,RDDSolver_cls.logstats(),oldObjQ, oldPrimalResidualQ, time.time()-tstart))
-        if i!=0 and i % args.checkpoint_freq==0:
-            ZRDD.checkpoint()
-            RDDSolver_cls.PrimalDualRDD.checkpoint()
-
+        if chckpnt:
+           ZRDD.localCheckpoint()
+        now = time.time()
+        logger.info("Iteration %d row (Q/Xi) stats: %s, objective value is %f residual is %f, time is %f, iteration time is %f" % (i,RDDSolver_cls.logstats(),oldObjQ, oldPrimalResidualQ, now-tstart,now-tlast))
+	tlast=now
        
     tend = time.time()
 

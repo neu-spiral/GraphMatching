@@ -56,9 +56,10 @@ class ParallelSolver():
         #Maybe partitioning is not needed?
 
         if checkpoint:
-            self.PrimalDualRDD.localCheckpoint()
+            self.PrimalDualRDD.checkpoint()
 
-        toUnpersist.unpersist()
+        #toUnpersist.unpersist()
+
   
         if not self.lean:
 	    return (oldPrimalResidual,oldObjValue)

@@ -6,7 +6,6 @@ from numpy.linalg import solve as linearSystemSolver,inv
 import logging
 from debug import logger,Sij_test
 from numpy.linalg import matrix_rank
-from scipy.sparse import coo_matrix,csr_matrix
 from pprint import pformat
 from time import time
 import argparse
@@ -57,8 +56,8 @@ class ParallelSolver():
 
         if checkpoint:
             self.PrimalDualRDD.localCheckpoint()
-
-        toUnpersist.unpersist()
+        ##Unpersisit commented for now because running time increases.
+       # toUnpersist.unpersist()
   
         if not self.lean:
 	    return (oldPrimalResidual,oldObjValue)

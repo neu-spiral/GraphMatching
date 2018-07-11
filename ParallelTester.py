@@ -5,6 +5,7 @@ from ParallelSolvers import ParallelSolver
 from pyspark import SparkContext, StorageLevel
 from debug import logger
 from helpers import clearFile
+import helpers_GCP
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Parallel Graph Matching Test.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('outfile', type=str, help='File to store running ansd time.')
@@ -18,6 +19,12 @@ if __name__=="__main__":
     parser.add_argument('--logfile',type=str,help='Log file to keep track of the stats.')
     parser.add_argument('--checkpoint_freq',default=15,type=int,help='Number of iterations between check points')
     parser.add_argument('--checkpointdir',default='checkpointdir',type=str,help='Directory to be used for checkpointing')
+    parser.add_argument('--bucket_name',default='armin-bucket',type=str,help='Bucket name, specify when running on google cloud. Outfile and logfile will be uploaded here.')
+
+    parser.add_argument('--GCP',action='store_true',help='Pass if running on Google Cloud Platform.')
+    parser.set_defaults(GCP=False)
+
+
     parser.set_defaults(undirected=True)
 
     args = parser.parse_args()
@@ -40,7 +47,7 @@ if __name__=="__main__":
 
 
     sc = SparkContext(appName="Parallel Tester for %s using %d partitions" %(args.solver, args.N))
-    sc.setLogLevel("OFF")
+ #   sc.setLogLevel("OFF")
     sc.setCheckpointDir(args.checkpointdir)
 
 
@@ -76,6 +83,7 @@ if __name__=="__main__":
         allvars = RDDSolver_cls.getVars(rho)
 
         ZRDD = allvars.reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)  ).mapValues(lambda (value,count): 1.0*value/count).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+    #    OldZ.unpersist()
         if chckpnt:
            ZRDD.localCheckpoint()
         now = time.time()
@@ -91,5 +99,15 @@ if __name__=="__main__":
     fP.write('(veriables, time)\n')
     fP.write('(%d, %f)' %(Num_vars, tend-tstart))
     fP.close() 
+  
+    #If running on google cloud upload the outfile and logfile to the bucket
+    if args.GCP:
+       #File names are specified by 
+        outfile_name = args.outfile.split('/')[-1]
+        logfile_name = args.logfile.split('/')[-1]
+        
+        helpers_GCP.upload_blob(args.bucket_name, args.outfile, outfile_name)
+        helpers_GCP.upload_blob(args.bucket_name, args.logfile, logfile_name)
+        
     
      

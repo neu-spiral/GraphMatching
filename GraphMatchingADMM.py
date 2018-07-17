@@ -5,6 +5,7 @@ from operator import add,and_
 from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver
 from ParallelSolvers import ParallelSolver
 from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero
+from helpers_GCP import safeWrite_GCP,upload_blob
 from debug import logger,dumpPPhiRDD,dumpBasic
 from pprint import pformat
 import os
@@ -66,6 +67,8 @@ if __name__=="__main__":
     parser.add_argument('--checkpoint_freq',default=10,type=int,help='Number of iterations between check points')
     parser.add_argument('--checkpointdir',default='checkpointdir',type=str,help='Directory to be used for checkpointing')
     parser.add_argument('--initRDD',default=None, type=str, help='File name, where the RDDs are dumped.')
+    parser.add_argument('--GCP',action='store_true', help='Pass if running on  Google Cloud Platform')
+    parser.add_argument('--bucketname',type=str,default=None,help='Bucket name for storing RDDs omn Google Cloud Platform, pass if running pn the platform')
 
     parser.add_argument('--dumpRDDs', dest='dumpRDDs', action='store_true',help='Dump auxiliary RDDs beyond Z')
     parser.add_argument('--no-dumpRDDs', dest='dumpRDDs', action='store_false',help='Do not dump auxiliary RDDs beyond Z')
@@ -270,14 +273,28 @@ if __name__=="__main__":
         if not (args.silent):
 	    if iteration % args.dump_trace_freq == 0 and iteration>0:
                 dump_st_time = time.time()
-                with open(args.outputfile+"_trace",'wb') as f:
-            	    pickle.dump((args,trace),f)
-    	        safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
 		
                 if args.dumpRDDs:
-		    safeWrite(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
-		    safeWrite(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
-		    safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
+                    if not args.GCP:
+                        #If not running on GCP, save the RDDs and the trace. 
+                        with open(args.outputfile+"_trace",'wb') as f:
+                            pickle.dump((args,trace),f)
+                        safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
+	                safeWrite(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
+		        safeWrite(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
+		        safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
+                    else:
+                        #If running on GCP, upload the log and the trace to the bucket. Also, save RDDs on the bucket. 
+                        outfile_name = args.outfile.split('/')[-1]
+                        logfile_name = args.logfile.split('/')[-1]
+
+                        upload_blob(args.bucket_name, args.outfile, outfile_name)
+                        upload_blob(args.bucket_name, args.logfile, logfile_name)
+                        safeWrite_GCP(ZRDD,args.outputfileZRDD+"_ZRDD",args.bucketname)
+                        safeWrite_GCP(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.bucketname)
+                        safeWrite_GCP(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.bucketname)
+                        safeWrite_GCP(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.bucketname)
+            
 		#log.info("ZRDD is "+str(ZRDD.collect()))
                 dump_end_time = time.time()
                 dump_time = dump_end_time - dump_st_time
@@ -288,14 +305,26 @@ if __name__=="__main__":
     end_timing = time.time()
     logger.info("Finished ADMM iterations in %f seconds." % (end_timing-start_timing))
 
-    if not args.silent:
-        with open(args.outputfile+"_trace",'wb') as f:
-	    pickle.dump((args,trace),f)
 
-    safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
-    safeWrite(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
-    safeWrite(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
-    safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
+    if not args.GCP:
+    #If not running on GCP, save the RDDs and the trace.  
+        with open(args.outputfile+"_trace",'wb') as f:
+            pickle.dump((args,trace),f)
+        safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
+        safeWrite(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
+        safeWrite(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
+        safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
+    else:
+    #If running on GCP, upload the log and the trace to the bucket. Also, save RDDs on the bucket. 
+        outfile_name = args.outfile.split('/')[-1]
+        logfile_name = args.logfile.split('/')[-1]
+
+        upload_blob(args.bucket_name, args.outfile, outfile_name)
+        upload_blob(args.bucket_name, args.logfile, logfile_name)
+        safeWrite_GCP(ZRDD,args.outputfileZRDD+"_ZRDD",args.bucketname)
+        safeWrite_GCP(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.bucketname)
+        safeWrite_GCP(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.bucketname)
+        safeWrite_GCP(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.bucketname)
     
 
     

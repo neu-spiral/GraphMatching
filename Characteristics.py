@@ -1,6 +1,7 @@
 import sys,argparse
 from pyspark import SparkContext,SparkConf,StorageLevel
 from operator import add
+from helpers import safeWrite
 
 def neighborhood(graph, N, k):
     """takes rdd of edges in graph and a maximum distance integer k, and returns the number of neighbors
@@ -54,7 +55,8 @@ def update(d,key,val):
     return d
 
 def paths_and_cycles(graph, N, k):
-    """takes rdd of edges in graph and a maximum distance integer k, and calculates the paths and cycles of length 1 to k for each node"""
+    """takes rdd of edges in graph and a maximum distance integer k, and calculates the paths and cycles of
+    length 1 to k for each node"""
 
     # initializes an empty list of the node and the number of cycles and paths in each neighborhood from 1 to k
     nodes = graph.flatMap(lambda (u, v): [u, v]).distinct()
@@ -90,15 +92,18 @@ def paths_and_cycles(graph, N, k):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Finds number of neighbors in neighborhood k',
+    parser = argparse.ArgumentParser(description='Finds number of neighbors in neighborhood k or the number '
+                                                 'of cycles and paths of length k',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('graph',
                         help ='Input Graph. The input should be a file containing one edge per line, '
                              'with each edge represented as a tuple of the form: (from_node,to_node).')
     parser.add_argument('k', type=int,
                         help ='Distance of largest path computed. E.g. k=2 computes the size of the '
-                             '2-degree neighborhood.')
+                             '2-degree neighborhood and the cycles and paths of length 2')
+    parser.add_argument('outputfile',type=str,help="The directory to save the results.")
     parser.add_argument('--N',type=int, default=20, help = 'Level of Parallelism')
+
     args = parser.parse_args()
 
     configuration = SparkConf()
@@ -109,8 +114,8 @@ if __name__ == "__main__":
     lines = sc.textFile(args.graph)
     graph = lines.map(eval).partitionBy(args.N).cache()
 
-    neighbors = neighborhood(graph, args.N, args.k).collect()
-    print(neighbors)
+    #neighbors = neighborhood(graph, args.N, args.k).collect()
+    #print(neighbors)
 
-    cycle_paths = paths_and_cycles(graph, args.N, args.k).collect()
-    print(cycle_paths)
+    cycle_paths = paths_and_cycles(graph, args.N, args.k)
+    safeWrite(cycle_paths, args.outputfile)

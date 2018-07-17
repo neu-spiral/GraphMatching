@@ -1,12 +1,11 @@
-from cvxopt import spmatrix,matrix
-from cvxopt.solvers import qp,lp
+#from cvxopt import spmatrix,matrix
+#from cvxopt.solvers import qp,lp
 from helpers import identityHash,swap,mergedicts,identityHash
 import numpy as np
 from numpy.linalg import solve as linearSystemSolver,inv
 import logging
 from debug import logger,Sij_test
 from numpy.linalg import matrix_rank
-from scipy.sparse import coo_matrix,csr_matrix
 from pprint import pformat
 from time import time
 import argparse
@@ -56,10 +55,9 @@ class ParallelSolver():
         #Maybe partitioning is not needed?
 
         if checkpoint:
-            self.PrimalDualRDD.checkpoint()
-
-        #toUnpersist.unpersist()
-
+            self.PrimalDualRDD.localCheckpoint()
+        ##Unpersisit commented for now because running time increases.
+       # toUnpersist.unpersist()
   
         if not self.lean:
 	    return (oldPrimalResidual,oldObjValue)

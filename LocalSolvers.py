@@ -1,5 +1,9 @@
-#from cvxopt import spmatrix,matrix,solvers
-#from cvxopt.solvers import qp,lp
+from cvxopt import spmatrix,matrix,solvers
+from cvxopt.solvers import qp,lp
+from scipy.sparse import coo_matrix,csr_matrix
+
+
+
 from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex,readfile, writeMat2File
 import numpy as np
 from numpy.linalg import solve as linearSystemSolver,inv
@@ -69,9 +73,17 @@ def General_LASSO(D, y, rho):
             DEN_plus = b_i + 1.
             DEN_minus = b_i - 1.
             
-            t_plus = a_i/DEN_plus
-            t_minus = a_i/DEN_minus
-          
+            #Make sure that the denominator is non-zero, otherwise, set it the hitting time to a negative value. 
+            try:     
+                t_plus = a_i/DEN_plus
+            except ZeroDivisionError:
+                t_plus = float('Inf')
+            try:
+                t_minus = a_i/DEN_minus
+            except ZeroDivisionError:
+                t_minus = float('Inf')
+   
+            #Pick the value which is positive and less than the current lambda_k            
             if t_minus<0 and t_plus>=0:
                 t_hit[coordinate_i] = t_plus
             elif t_minus>=0 and t_plus<0:            
@@ -80,12 +92,7 @@ def General_LASSO(D, y, rho):
                 print 'ERROR'
                 break
             else:
-                sgn_min = min(t_minus, t_plus)
-                if sgn_min<lambda_k:
-                    t_hit[coordinate_i] = sgn_min
-                else:
-                    print 'ERROR'
-                    break    
+                t_hit[coordinate_i] =  min(t_minus, t_plus)
         return t_hit
     def LeaveTimes(D_B, D_minus_B, D_minusB_sqrd_psudoinv, y, D_B_times_sgn, B_S, trasnslate_itoj_B):
         """Compute leaving times (see Eq. (29))"""
@@ -175,6 +182,7 @@ def General_LASSO(D, y, rho):
 
 
         t_leave = LeaveTimes(D_B, D_minusB, D_minusB_sqrd_psudoinv, y, D_B_times_sgn, B_S, trasnslate_itoj_B)
+        print  lambda_k
         #Find the next hitting or leaving time
         status, coord, lambda_k = next_kink(t_hit, t_leave, lambda_k)
         if status=='hit':
@@ -186,7 +194,6 @@ def General_LASSO(D, y, rho):
             sgn_coord = np.sign( float( u_hat[i_coord]) )
         else:
             sgn_coord = 0.
-        print lambda_k 
         if lambda_k< rho:
             break
         #u_hat = u_hat_minusB(lambda_k)
@@ -208,6 +215,7 @@ def General_LASSO(D, y, rho):
         u[i] = sgn_i * rho
 
     u = np.matrix(u)
+    print u , eval_dual(u, D, y)
     sol = y- D.transpose()*u
     return sol
     
@@ -264,8 +272,8 @@ def General_LASSO_test(D, y, rho):
 
             t_plus = a_i/DEN_plus
             t_minus = a_i/DEN_minus
- 
-
+         
+            print t_minus, t_plus, lambda_k
             if t_minus<0 and t_plus>=0:
                 t_hit[coordinate_i] = t_plus
             elif t_minus>=0 and t_plus<0:
@@ -297,7 +305,6 @@ def General_LASSO_test(D, y, rho):
             i_coordinate = trasnslate_jtoi_B[i]
             c_i = sgn_i * float( D_B[i_coordinate,:]*precomp_c_i_s)
             d_i = sgn_i * float(D_B[i_coordinate,:]*precomp_d_i_s)
-            print c_i,d_i
             if c_i<0 and d_i<0:
                 t_leave[i] = c_i/d_i
             else:
@@ -308,7 +315,7 @@ def General_LASSO_test(D, y, rho):
         max_t = -1.0
         leaving_coordinate = None
         for j in t_hit:
-            if t_hit[j]>max_t:
+            if t_hit[j]>max_t and t_hit[j]<lambda_k:
                 max_t = t_hit[j]
                 coordinate = j
         for j in t_leave:
@@ -386,6 +393,7 @@ def General_LASSO_test(D, y, rho):
         if lambda_k< rho:
             break
         #u_hat = u_hat_minusB(lambda_k)
+        print lambda_k,t_leave,t_hit
         B_S = update_boundary_set(B_S, status, coord, sgn_coord)
         k = k+1
     sol = np.zeros((N,1))
@@ -660,7 +668,10 @@ class LocalL1Solver(LocalSolver):
             for var in S1:
                 D[row, translate_ij2coordinates[var]] = +1.
             for var in  S2:
-                D[row, translate_ij2coordinates[var]] = -1.
+                if  D[row, translate_ij2coordinates[var]]==0:
+                    D[row, translate_ij2coordinates[var]] = -1.
+                else:
+                    D[row, translate_ij2coordinates[var]] = 0.
             row = row+1
         self.objectives = objectives
         self.D = D  
@@ -673,11 +684,11 @@ class LocalL1Solver(LocalSolver):
         for var in zbar:
             y[self.translate_ij2coordinates[var]] = zbar[var]    
         sol = General_LASSO(self.D, y, 1./rho)
+        #### 
         newp = dict(  [(self.translate_coordinates2ij[i], float(sol[i])) for i in self.translate_coordinates2ij] )
         stats = {}
         localval = self.evaluate(newp)
         stats['pobj'] = localval
-
         if zbar!= None:
            rhoerr = rho*sum( (pow((zbar[key]-newp[key]),2)  for key in newp ) )
            stats['rhoerr'] = rhoerr
@@ -1026,20 +1037,20 @@ if __name__=="__main__":
 #    parser.add_argument('y', help='File containing the vector y')
 #    parser.add_argument('outfile', help='File to store the sol')
 #    parser.add_argument('--rho', help='Values of rho', type=float,default=1.) 
-#    parser.add_argument('objectives',type=str,help='File containing objectives.')
+    parser.add_argument('objectives',type=str,help='File containing objectives.')
 #    parser.add_argument('graph1',help = 'File containing first graph')
 #    parser.add_argument('graph2',help = 'File containing second graph')
 #    parser.add_argument('G',help = 'Constraint graph')
-#    parser.add_argument('--N',default=1,type=int, help='Level of parallelism')
-#    parser.add_argument('--rho',default=1.0,type=float, help='rho')
+    parser.add_argument('--N',default=40,type=int, help='Level of parallelism')
+    parser.add_argument('--rho',default=1.0,type=float, help='rho')
 #
 #
-#    args = parser.parse_args()
-#    sc = SparkContext(appName='Local Solver Test',master='local[40]')
+    args = parser.parse_args()
+    sc = SparkContext(appName='Local Solver Test',master='local[40]')
     
-#    sc.setLogLevel("OFF")
+    sc.setLogLevel("OFF")
 
-#    objectives = dict( sc.textFile(args.objectives, minPartitions=args.N).map(eval).collect() )
+    objectives = dict( sc.textFile(args.objectives, minPartitions=args.N).map(eval).collect() )
     
 #    
 #    graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
@@ -1053,7 +1064,7 @@ if __name__=="__main__":
 #    end = time()
 #    print "L1 initialization in ",end-start,'seconds.'
     
- #   tstart = time()
+#    tstart = time()
 #
 #
 #    objs = dict(objectives)
@@ -1092,40 +1103,40 @@ if __name__=="__main__":
     
 #    
     
-#    np.random.seed(1993)
-#    start = time()	
-#    L1 = LocalL1Solver(objectives,args.rho)
-#    end = time()
-#    print "L1 initialization in ",end-start,'seconds.'
+    np.random.seed(1993)
+    start = time()	
+    L1 = LocalL1Solver(objectives,args.rho)
+    end = time()
+    print "L1 initialization in ",end-start,'seconds.'
 
 
-#    n = len(L1.variables())
-#    Z = dict([ (var,float(np.random.random(1))) for var in L1.variables()])
+    n = len(L1.variables())
+    Z = dict([ (var,float(np.random.random(1))) for var in L1.variables()])
 
     #Write the structure matrix, as well as the vector Z
-#    D = L1.D
-#    print D.shape
-#    y = np.matrix( np.zeros((L1.num_variables,1)))
-#    for var in Z:
-#        y[L1.translate_ij2coordinates[var]] = Z[var]
-#    writeMat2File('data/D_y/D_part',D)
-#    writeMat2File('data/D_y/y_part',y)
+    D = L1.D
+    print D.shape
+    y = np.matrix( np.zeros((L1.num_variables,1)))
+    for var in Z:
+        y[L1.translate_ij2coordinates[var]] = Z[var]
+    writeMat2File('data/D_y/D_part',D)
+    writeMat2File('data/D_y/y_part',y)
 #    
-#    start = time()	
-#    newp,stats= L1.solve(Z, args.rho)
-#    end = time()
-#    print 'L1 solve in',end-start,'seconds, stats:',stats
+    start = time()	
+    newp,stats= L1.solve(Z, args.rho)
+    end = time()
+    print 'L1 solve in',end-start,'seconds, stats:',stats
 
 
-#    start = time()
-#    L1_Old = LocalL1Solver_Old(objectives,args.rho)
-#    end = time()
-#    print "L1 Old initialization in ",end-start,'seconds.'
+    start = time()
+    L1_Old = LocalL1Solver_Old(objectives,args.rho)
+    end = time()
+    print "L1 Old initialization in ",end-start,'seconds.'
 
-#    start = time()      
-#    newp_Old,stats= L1_Old.solve(Z, args.rho)
-#    end = time()
-#    print 'L1 Old solve in',end-start,'seconds, stats:',stats
+    start = time()      
+    newp_Old,stats= L1_Old.solve(Z, args.rho)
+    end = time()
+    print 'L1 Old solve in',end-start,'seconds, stats:',stats
    
     
 #	
@@ -1140,19 +1151,20 @@ if __name__=="__main__":
 
 
 
-    np.random.seed(1995)
-    P = 100
-    N = 80
-    D = np.matrix(np.random.random(P*N)).reshape((P,N))
-    y = np.matrix( np.random.random(N) ).reshape((N,1))
-#    writeMat2File('data/D', D)
-#    writeMat2File('data/y', y)
+ #   np.random.seed(1993)
+ #   P = 100
+ #   N = 80
+ #   D = np.matrix(np.random.random(P*N)).reshape((P,N))
+ #   y = np.matrix( np.random.random(N) ).reshape((N,1))
+ #   writeMat2File('data/D', D)
+ #   writeMat2File('data/y', y)
 
 
-    tstart = time()
-    sol =   General_LASSO_test(D, y, 0.1)
-    tend = time()
-    print "Solved in %f seconds" %(tend-tstart)
+ #   tstart = time()
+ #   sol =   General_LASSO(D, y, 0.42)
+ #   tend = time()
+ #   print sol
+ #   print "Solved in %f seconds" %(tend-tstart)
 
 
 #    tstart = time()

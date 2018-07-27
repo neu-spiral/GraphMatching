@@ -126,7 +126,7 @@ class ParallelSolverPnorm(ParallelSolver):
         #Start the inner ADMM iterations
         for i in range(100):
             #Compute vectors Fm(Pm)
-            FmZbarPrimalDual = ZbarPrimalDual.mapValues((solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),Y,Phi,Upsilon,stats,Zbar))
+            FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),Y,Phi,Upsilon,stats,Zbar))
             if not self.lean:
                #Compute the residual 
                 OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
@@ -140,7 +140,7 @@ class ParallelSolverPnorm(ParallelSolver):
             NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, Phi, Upsilon, stats, Zbar)): (solver, Y, Phi, Upsilon,stats, Zbar) )
            
             #Update P via solving a least-square problem
-            ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver,Upsilon,  (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
+            ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
         
         self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache() 
         if not self.lean:

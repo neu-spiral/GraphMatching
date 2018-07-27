@@ -774,7 +774,7 @@ class LocalLpSolver(LocalSolver):
                     translate_ij2coordinates[var] = n_i
                     n_i = n_i+1
             translate_ij2coordinates_Y[key] = p_i
-             p_i = p_i +1
+            p_i = p_i +1
         #Create the structure matrix D.
         D = np.matrix( np.zeros((P, n_i)))
         row = 0

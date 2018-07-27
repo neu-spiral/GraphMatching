@@ -45,6 +45,34 @@ def normp(RDD, p):
     """Compute p-norm of a vector stored as an RDD with its sign."""
     norm_to_P =  RDD.values().map(lambda (x, x_sign):abs(x)**p).reduce(lambda x,y:x+y)
     return norm_to_P**(1./p)
+def pnormOp(NothersRDD,p, rho, epsilon):
+    def pnorm(RDD, p):
+        return (  RDD.values().flatMap(lambda (Nm, Others):[Nm[key][0]**p for key in Nm]).reduce(lambda x,y:x+y) )**(1./p)
+
+
+    NothersRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([ (key, (rho*abs(Nm[key]),sign(Nm[key]))) for key in Nm]), Others)).cache() 
+    
+    N_norm = pnorm(NothersRDD, p)
+    
+    Y_norm_L = 0.
+    Y_norm_U = N_norm
+
+    error = epsilon + 1
+    while error>epsilon:
+        Y_norm = (Y_norm_L + Y_norm_U)/2   
+        NothersRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, ( Nm[key][0]*solve_ga_bisection(Y_norm *Nm[key][0] **((2-p)/(p-1)),  p ), Nm[key][1]) ) for key in Nm]) ,Others) )
+      
+        Y_norm_current = pnorm(NothersRDD, p)
+        if Y_norm_current<Y_norm:
+            Y_norm_U = Y_norm
+        else:
+            Y_norm_L = Y_norm
+        error = (Y_norm_U-Y_norm_L)/Y_norm
+    YothersRDD = NothersRDD.mapvalues(lambda (Nm, Others):(dict([(key, m[key][1]*Nm[key][0]/rho) for key in Nm])
+    Ypnorm =  Y_norm_current/rho 
+    return (YothersRDD, Ypnorm) 
+
+    
 def pnorm_proxop(N, p, rho, epsilon):
     """Solve prox operator for vector N and p-norm"""
 

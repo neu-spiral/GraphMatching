@@ -12,6 +12,7 @@ import argparse
 from pyspark import SparkContext
 from operator import add,and_
 from LocalSolvers import LocalLpSolver
+from proxOp import pnormOp,pnorm_proxop
 
 
 class ParallelSolver():
@@ -101,13 +102,15 @@ class ParallelSolverPnorm(ParallelSolver):
         self.varsToPartitions = self.PrimalDualRDD.flatMapValues( lambda  (solver,P,Y,Phi,Upsilon, stats) : P.keys()).map(swap).partitionBy(self.N).cache()
     def joinAndAdapt(self,ZRDD, alpha, rho, checkpoint = False):
         rho_inner = self.rho_inner
+        p_param = self.p
         #Send z to the appropriate partitions
         def Fm(objs,P):
             """
                 Compute the FPm functions, i.e., FPm = \sum_{ij\in S1} P[(i,j)]-\sum_{ij \in S2} P[(i,j)]
             """
             FPm = {}
-            for (edge, (set1,set2)) in objs:
+            for edge  in objs:
+                (set1, set2) = objs[edge]
                 tmp_val = 0.0
                 for key in set1:
                     tmp_val += P[key]
@@ -120,9 +123,10 @@ class ParallelSolverPnorm(ParallelSolver):
         PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
         if not self.lean:
             oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
-            oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z)).reduce(add))**(1./p)  #local solver should implement evaluate 
+            oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z, p_param)).reduce(add))**(1./p_param)  #local solver should compute p-norm to the power p. 
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
         ZbarPrimalDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Z): ( solver,P,Y,Phi,Upsilon,stats,dict( [(key, Z[key]-Phi[key]) for key in Z])))
+        
         #Start the inner ADMM iterations
         for i in range(100):
             #Compute vectors Fm(Pm)
@@ -136,11 +140,18 @@ class ParallelSolverPnorm(ParallelSolver):
             #Adapt the dual varible Upsilon
             FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
             #Update Y via prox. op. for p-norm
-            NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, Phi, Upsilon,stats,Zbar)  ) ), p, rho_inner, 1.e-6 )
+            NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-6 )
+
+            #Testing
+            Y1, Y1_norm, time_norm = pnorm_proxop(FmYNewUpsilonPPhi.flatMapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):[(key,FPm[key]-Upsilon[key]) for key in Upsilon] ).values(), p=p_param, rho=1, epsilon=1.e-6)
+            print "Previous method Y1 norm is %f" %Y1_norm
+
             NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, Phi, Upsilon, stats, Zbar)): (solver, Y, Phi, Upsilon,stats, Zbar) )
+            print "Iteration %d, p-norm is %f residual is %f" %(i, Ynorm, OldinnerResidual)
            
             #Update P via solving a least-square problem
             ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
+            print ZbarPrimalDual.collect()
         
         self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache() 
         if not self.lean:

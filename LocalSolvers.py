@@ -1,5 +1,5 @@
 from cvxopt import spmatrix,matrix,solvers
-from cvxopt.solvers import qp,lp
+from cvxopt.solvers import qp,lp,coneqp
 from scipy.sparse import coo_matrix,csr_matrix
 
 
@@ -798,8 +798,8 @@ class LocalLpSolver(LocalSolver):
         self.rho = rho
     def solve(self, Y, zbar, Upsilon, rho, rho_inner):
         """Solve the LS problem"""
-        N_i = len(translate_ij2coordinates)
-        P_i = len(translate_ij2coordinates_Y)
+        N_i = len(self.translate_ij2coordinates)
+        P_i = len(self.translate_ij2coordinates_Y)
         zbar_vec = np.matrix(np.zeros((N_i,1)))
         Y_vec = np.matrix(np.zeros((P_i,1)))
         Upsilon_vec = np.matrix(np.zeros((P_i,1)))
@@ -814,6 +814,15 @@ class LocalLpSolver(LocalSolver):
         rhoerr = rho/2.* float( (p_vec-zbar_vec).T * (p_vec-zbar_vec))
         stats = {'rhoerr':rhoerr}
         return (newp, stats)
+    def variables(self):
+        return (self.translate_ij2coordinates.keys(), self.translate_ij2coordinates_Y.keys())
+    def evaluate(self, z, p):
+        """Return p-norm of z to the power of p"""
+        s = 0.
+        for key in z:
+            s = s + abs(z[key])**p
+        return s
+        
         
         
          
@@ -1203,45 +1212,82 @@ if __name__=="__main__":
         
        
         
-    
-
-    
-#    
-    
+   ###Test LocalLpsolver, which is a least-square solver 
+    rho = args.rho
+    rho_inner = args.rho
     np.random.seed(1993)
-    start = time()	
-    L1 = LocalL1Solver(objectives,args.rho)
+    start = time()  
+    Lp = LocalLpSolver(objectives,args.rho)
     end = time()
-    print "L1 initialization in ",end-start,'seconds.'
+    print "Lp initialization in ",end-start,'seconds.'
+    
+   
+    Pvars, Yvars = Lp.variables()
+    zbar = dict([ (var,float(np.random.random(1))) for var in Pvars])
+    Upsilon = dict([ (var,float(np.random.random(1))) for var in Yvars])
+    Y = dict([ (var,float(np.random.random(1))) for var in Yvars])
+    newp, stats =  Lp.solve(Y, zbar, Upsilon, rho, rho_inner)
+    print newp, stats
+ 
+    #Solve via qp solver
+    p_i = len(Yvars)
+    n_i = len(Pvars)
+    D = matrix(Lp.D)
+    Ybar = dict( [(key, Y[key]+Upsilon[key]) for key in Y])
+    Ybar_vec  = matrix(0.0, (p_i,1))
+    for i in range(p_i):
+        Ybar_vec[i] = Ybar[Lp.translate_coordinates2ij_Y[i]]
+        
+    A = spmatrix(rho, range(n_i), range(n_i)) + rho_inner * D.T * D
+    b = matrix(0.0, (n_i,1))
+    for i in range(n_i):
+        b[i] = -rho * zbar[Lp.translate_coordinates2ij[i]] 
+    b = b - rho_inner * D.T * Ybar_vec
+    x = coneqp(P=A, q=b)['x']
+    newp_cvx = dict( [(key, x[Lp.translate_ij2coordinates[key]]) for key in Pvars])
+    print "Difference is %f" %sum([(newp[key]-newp_cvx[key])**2 for key in newp])
+    
 
+    
+ 
 
-    n = len(L1.variables())
-    Z = dict([ (var,float(np.random.random(1))) for var in L1.variables()])
-
-    #Write the structure matrix, as well as the vector Z
-    D = L1.D
-    print D.shape
-    y = np.matrix( np.zeros((L1.num_variables,1)))
-    for var in Z:
-        y[L1.translate_ij2coordinates[var]] = Z[var]
-    writeMat2File('data/D_y/D_part',D)
-    writeMat2File('data/D_y/y_part',y)
+    
 #    
-    start = time()	
-    newp,stats= L1.solve(Z, args.rho)
-    end = time()
-    print 'L1 solve in',end-start,'seconds, stats:',stats
-
-
-    start = time()
-    L1_Old = LocalL1Solver_Old(objectives,args.rho)
-    end = time()
-    print "L1 Old initialization in ",end-start,'seconds.'
-
-    start = time()      
-    newp_Old,stats= L1_Old.solve(Z, args.rho)
-    end = time()
-    print 'L1 Old solve in',end-start,'seconds, stats:',stats
+    
+#    np.random.seed(1993)
+#    start = time()	
+#    L1 = LocalL1Solver(objectives,args.rho)
+#    end = time()
+#    print "L1 initialization in ",end-start,'seconds.'
+#
+#
+#    n = len(L1.variables())
+#    Z = dict([ (var,float(np.random.random(1))) for var in L1.variables()])
+#
+#    #Write the structure matrix, as well as the vector Z
+#    D = L1.D
+#    print D.shape
+#    y = np.matrix( np.zeros((L1.num_variables,1)))
+#    for var in Z:
+#        y[L1.translate_ij2coordinates[var]] = Z[var]
+#    writeMat2File('data/D_y/D_part',D)
+#    writeMat2File('data/D_y/y_part',y)
+##    
+#    start = time()	
+#    newp,stats= L1.solve(Z, args.rho)
+#    end = time()
+#    print 'L1 solve in',end-start,'seconds, stats:',stats
+#
+#
+#    start = time()
+#    L1_Old = LocalL1Solver_Old(objectives,args.rho)
+#    end = time()
+#    print "L1 Old initialization in ",end-start,'seconds.'
+#
+#    start = time()      
+#    newp_Old,stats= L1_Old.solve(Z, args.rho)
+#    end = time()
+#    print 'L1 Old solve in',end-start,'seconds, stats:',stats
    
     
 #	

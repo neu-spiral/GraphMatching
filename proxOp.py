@@ -5,7 +5,7 @@ from numpy import sign
 
 from numpy import linalg as LA
 import time
-from helpers_GCP import safeWrite_GCP, upload_blob
+#from helpers_GCP import safeWrite_GCP, upload_blob
 from helpers import safeWrite
 
 def solve_ga_bisection(a, p):
@@ -46,10 +46,14 @@ def normp(RDD, p):
     norm_to_P =  RDD.values().map(lambda (x, x_sign):abs(x)**p).reduce(lambda x,y:x+y)
     return norm_to_P**(1./p)
 def pnormOp(NothersRDD,p, rho, epsilon):
+    """Prox. operator for p-norm, i.e., solve the following problem:
+           min_Y \|Y\|_p + rho/2*\|Y-N\|_2^2,
+        where N values are given in NothersRDD, s.t., each partition i contains (N_i, Others_i) and N_i is a dictionary.
+    """
     def pnorm(RDD, p):
-        return (  RDD.values().flatMap(lambda (Nm, Others):[Nm[key][0]**p for key in Nm]).reduce(lambda x,y:x+y) )**(1./p)
+        return (  RDD.values().flatMap(lambda (Nm, Others):[abs(Nm[key][0])**p for key in Nm]).reduce(lambda x,y:x+y) )**(1./p)
 
-
+     #Normalize N
     NothersRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([ (key, (rho*abs(Nm[key]),sign(Nm[key]))) for key in Nm]), Others)).cache() 
     
     N_norm = pnorm(NothersRDD, p)
@@ -60,16 +64,19 @@ def pnormOp(NothersRDD,p, rho, epsilon):
     error = epsilon + 1
     while error>epsilon:
         Y_norm = (Y_norm_L + Y_norm_U)/2   
-        NothersRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, ( Nm[key][0]*solve_ga_bisection(Y_norm *Nm[key][0] **((2-p)/(p-1)),  p ), Nm[key][1]) ) for key in Nm]) ,Others) )
+        TempRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, ( Nm[key][0]*solve_ga_bisection(Y_norm *Nm[key][0] **((2-p)/(p-1)),  p ), Nm[key][1]) ) for key in Nm]) ,Others) )
       
-        Y_norm_current = pnorm(NothersRDD, p)
+        Y_norm_current = pnorm(TempRDD, p)
         if Y_norm_current<Y_norm:
             Y_norm_U = Y_norm
         else:
             Y_norm_L = Y_norm
-        error = (Y_norm_U-Y_norm_L)/Y_norm
-    YothersRDD = NothersRDD.mapvalues(lambda (Nm, Others):(dict([(key, m[key][1]*Nm[key][0]/rho) for key in Nm])
-    Ypnorm =  Y_norm_current/rho 
+        error = (Y_norm_U-Y_norm_L)/N_norm
+    #    print "Error in p-norm Prox. Op. is %f" %error
+    #Denormalize the solution 
+    YothersRDD = NothersRDD.mapValues(lambda (Nm, Others):(dict([(key, Nm[key][1]*Nm[key][0]/rho) for key in Nm]), Others))
+    Ypnorm =  YothersRDD.values().flatMap(lambda (Y, Others): [abs(Y[key])**p for key in Y]).reduce(lambda x,y:x+y)
+    Ypnorm = Ypnorm**(1./p)
     return (YothersRDD, Ypnorm) 
 
     
@@ -98,7 +105,7 @@ def pnorm_proxop(N, p, rho, epsilon):
         else:
             Z_norm_L = Z_norm
         error = (Z_norm_U-Z_norm_L)/N_norm
-        print "Error is %f, time is %f" %(error, time.time()-t_start)
+     #   print "Error is %f, time is %f" %(error, time.time()-t_start)
     Z = Z.mapValues(lambda (zi, zi_sign):zi*zi_sign/rho).cache()
     t_end = time.time()
     return Z, Z_norm, t_end-t_start     

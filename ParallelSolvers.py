@@ -140,18 +140,19 @@ class ParallelSolverPnorm(ParallelSolver):
             #Adapt the dual varible Upsilon
             FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
             #Update Y via prox. op. for p-norm
-            NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-6 )
+            NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, Y, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-6 )
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldY, Phi, Upsilon, stats, Zbar)): (solver, Y, OldY, Phi, Upsilon,stats, Zbar) )
 
-            #Testing
-            Y1, Y1_norm, time_norm = pnorm_proxop(FmYNewUpsilonPPhi.flatMapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):[(key,FPm[key]-Upsilon[key]) for key in Upsilon] ).values(), p=p_param, rho=1, epsilon=1.e-6)
-            print "Previous method Y1 norm is %f" %Y1_norm
 
-            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, Phi, Upsilon, stats, Zbar)): (solver, Y, Phi, Upsilon,stats, Zbar) )
-            print "Iteration %d, p-norm is %f residual is %f" %(i, Ynorm, OldinnerResidual)
+            if not self.lean:
+               #Compute the dual residual 
+                DualInnerResidual = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
+
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar):(solver, Y, Phi, Upsilon,stats, Zbar) )
+            print "Iteration %d, p-norm is %f residual is %f, dual residual is %f" %(i, Ynorm, OldinnerResidual, DualInnerResidual)
            
             #Update P via solving a least-square problem
             ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
-            print ZbarPrimalDual.collect()
         
         self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache() 
         if not self.lean:
@@ -159,6 +160,8 @@ class ParallelSolverPnorm(ParallelSolver):
         else:
             return None
            
+    def getVars(self, rho):
+        return self.PrimalDualRDD.flatMap(lambda (partitionId,(solver,P,Y,Phi,Upsilon,stats)): [ (key, ( rho*( P[key]+Phi[key]), rho))    for key in P ]  )
            
            
                                                      

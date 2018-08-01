@@ -1,7 +1,7 @@
 import time
 import argparse,logging
-from LocalSolvers import LocalL1Solver, LocalRowProjectionSolver, LocalL1Solver_Old
-from ParallelSolvers import ParallelSolver
+from LocalSolvers import LocalL1Solver, LocalRowProjectionSolver, LocalL1Solver_Old, LocalLpSolver
+from ParallelSolvers import ParallelSolver, ParallelSolverPnorm
 from pyspark import SparkContext, StorageLevel
 from debug import logger
 from helpers import clearFile
@@ -49,7 +49,7 @@ if __name__=="__main__":
     sc = SparkContext(appName="Parallel Tester for %s using %d partitions" %(args.solver, args.N))
  #   sc.setLogLevel("OFF")
     sc.setCheckpointDir(args.checkpointdir)
-
+    sc.setLogLevel('OFF')
 
 
     SolverClass = eval(args.solver)
@@ -57,6 +57,7 @@ if __name__=="__main__":
     uniformweight = 1/2000.
     alpha = args.alpha
     rho = args.rho
+    p = 1.5
 
     data = sc.textFile(args.data).map(lambda x:eval(x)).partitionBy(N).persist(StorageLevel.MEMORY_ONLY)
  
@@ -67,7 +68,7 @@ if __name__=="__main__":
     tstart = time.time()
     tlast = tstart
     #Initiate the ParallelSolver object
-    RDDSolver_cls = ParallelSolver(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight*2, N=N, rho=rho)
+    RDDSolver_cls = ParallelSolverPnorm(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight*2, N=N, rho=rho, p=p, rho_inner=rho)
 
 
     #Create consensus variable, initialized to uniform assignment ignoring constraints

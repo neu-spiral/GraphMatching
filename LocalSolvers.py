@@ -817,11 +817,19 @@ class LocalLpSolver(LocalSolver):
     def variables(self):
         return (self.translate_ij2coordinates.keys(), self.translate_ij2coordinates_Y.keys())
     def evaluate(self, z, p):
-        """Return p-norm of z to the power of p"""
+        """Return p-norm of Y^(m) to the power of p"""
         s = 0.
-        for key in z:
-            s = s + abs(z[key])**p
+        for edge in self.objectives:
+            Y_elem = 0.0
+            (S1, S2) = self.objectives[edge]
+            for key in S1:
+                Y_elem += z[key]
+            for key in S2:
+                Y_elem -= z[key]
+            s += abs(Y_elem)**p
         return s
+                        
+        
         
         
         

@@ -154,12 +154,27 @@ class ParallelSolverPnorm(ParallelSolver):
             #Update P via solving a least-square problem
             ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
         
+            if DualInnerResidual<0.001 and OldinnerResidual<0.0001:
+                break
         self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache() 
         if not self.lean:
             return (oldPrimalResidual,oldObjValue)
         else:
             return None
            
+    def logstats(self):
+        """  Return statistics from PrimalDualRDD. In particular, this returns the average, min, and maximum value of each statistic.
+        """
+        rdd = self.PrimalDualRDD
+
+        statsonly =rdd.map(lambda (partitionid, (solver,P,Y,Phi,Upsilon,stats)): stats).cache()
+        #Checkpoint the RDD
+       # if iteration!=0 and iteration % checkointing_freq == 0:
+       #     statsonly.checkpoint()
+        stats = statsonly.reduce(lambda x,y:  mergedicts(x,y))
+        minstats = statsonly.reduce(lambda x,y:  mergedicts(x,y,min))
+        maxstats = statsonly.reduce(lambda x,y:  mergedicts(x,y,max))
+        return " ".join([ key+"= %s (%s/%s)" % (str(1.0*stats[key]/self.N),str(minstats[key]),str(maxstats[key]))   for key in stats])
     def getVars(self, rho):
         return self.PrimalDualRDD.flatMap(lambda (partitionId,(solver,P,Y,Phi,Upsilon,stats)): [ (key, ( rho*( P[key]+Phi[key]), rho))    for key in P ]  )
            

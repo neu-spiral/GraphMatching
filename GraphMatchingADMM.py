@@ -199,12 +199,13 @@ if __name__=="__main__":
     dump_time = 0.
     trace = {}
     for iteration in range(args.maxiter):
+        chckpnt = (iteration!=0 and iteration % args.checkpoint_freq==0)
 
-        (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, args.rhoQ)
+        (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, args.rhoQ, checkpoint=chckpnt)
         logger.info("Iteration %d row (Q/Xi) stats: %s" % (iteration,QXi.logstats())) 
-        (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT)
+        (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt)
         logger.info("Iteration %d column (T/Psi) stats: %s" % (iteration,TPsi.logstats())) 
-        (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP)
+        (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt)
         logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
 
       
@@ -220,13 +221,8 @@ if __name__=="__main__":
 	ZRDD = allvars.reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)  ).mapValues(lambda (value,count): 1.0*value/count).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
        #Maybe this is more efficient!
       #  ZRDD = allvars.partitionBy(args.N).reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)).mapValues(lambda (value,count): 1.0*value/count).persist(StorageLevel.MEMORY_ONLY)
-	if iteration % args.checkpoint_freq == 0 and iteration != 0:
-            logger.info("Checkpointing RDDs")
-	    ZRDD.checkpoint()
-            PPhi.PrimalDualRDD.checkpoint()
-            QXi.PrimalDualRDD.checkpoint()
-            TPsi.PrimalDualRDD.checkpoint()
-            logger.info("Checkpointing RDDs done.")
+	if chckpnt:
+	    ZRDD.localCheckpoint()
 	
 	if DEBUG:
 	   logger.debug("Iteration %d Z is:\n%s" %(iteration,pformat(list(ZRDD.collect()),width=30)) )
@@ -275,25 +271,25 @@ if __name__=="__main__":
                 dump_st_time = time.time()
 		
                 if args.dumpRDDs:
+                    with open(args.outputfile+"_trace",'wb') as f:
+                        pickle.dump((args,trace),f)
                     if not args.GCP:
                         #If not running on GCP, save the RDDs and the trace. 
-                        with open(args.outputfile+"_trace",'wb') as f:
-                            pickle.dump((args,trace),f)
                         safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
-	                safeWrite(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
+	                safeWrite(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD" ,args.driverdump)
 		        safeWrite(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
 		        safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
                     else:
                         #If running on GCP, upload the log and the trace to the bucket. Also, save RDDs on the bucket. 
-                        outfile_name = args.outfile.split('/')[-1]
+                        outfile_name = args.outputfile.split('/')[-1]
                         logfile_name = args.logfile.split('/')[-1]
 
-                        upload_blob(args.bucket_name, args.outfile, outfile_name)
-                        upload_blob(args.bucket_name, args.logfile, logfile_name)
-                        safeWrite_GCP(ZRDD,args.outputfileZRDD+"_ZRDD",args.bucketname)
-                        safeWrite_GCP(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.bucketname)
-                        safeWrite_GCP(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.bucketname)
-                        safeWrite_GCP(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.bucketname)
+                        upload_blob(args.bucketname, args.outputfile+"_trace", outfile_name)
+                        upload_blob(args.bucketname, args.logfile, logfile_name)
+                        safeWrite_GCP(ZRDD,args.outputfileZRDD+"_%d_ZRDD" %iteration,args.bucketname)
+                        safeWrite_GCP(PPhi.PrimalDualRDD,args.outputfileZRDD+"_%d_PPhiRDD" %iteration,args.bucketname)
+                        safeWrite_GCP(QXi.PrimalDualRDD,args.outputfileZRDD+"_%d_QXiRDD" %iteration,args.bucketname)
+                        safeWrite_GCP(TPsi.PrimalDualRDD,args.outputfileZRDD+"_%d_TPsiRDD" %iteration,args.bucketname)
             
 		#log.info("ZRDD is "+str(ZRDD.collect()))
                 dump_end_time = time.time()
@@ -306,21 +302,21 @@ if __name__=="__main__":
     logger.info("Finished ADMM iterations in %f seconds." % (end_timing-start_timing))
 
 
+    with open(args.outputfile+"_trace",'wb') as f:
+            pickle.dump((args,trace),f)
     if not args.GCP:
     #If not running on GCP, save the RDDs and the trace.  
-        with open(args.outputfile+"_trace",'wb') as f:
-            pickle.dump((args,trace),f)
         safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
         safeWrite(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
         safeWrite(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
         safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
     else:
     #If running on GCP, upload the log and the trace to the bucket. Also, save RDDs on the bucket. 
-        outfile_name = args.outfile.split('/')[-1]
+        outfile_name = args.outputfile.split('/')[-1]
         logfile_name = args.logfile.split('/')[-1]
 
-        upload_blob(args.bucket_name, args.outfile, outfile_name)
-        upload_blob(args.bucket_name, args.logfile, logfile_name)
+        upload_blob(args.bucketname, args.outputfile+"_trace", outfile_name)
+        upload_blob(args.bucketname, args.logfile, logfile_name)
         safeWrite_GCP(ZRDD,args.outputfileZRDD+"_ZRDD",args.bucketname)
         safeWrite_GCP(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.bucketname)
         safeWrite_GCP(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.bucketname)

@@ -85,7 +85,7 @@ if __name__=="__main__":
         ZRDD = allvars.reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)  ).mapValues(lambda (value,count): 1.0*value/count).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
     #    OldZ.unpersist()
         if chckpnt:
-           ZRDD.checkpoint()
+           ZRDD.localCheckpoint()
         #OldZ.unpersist()
         now = time.time()
         logger.info("Iteration %d row (Q/Xi) stats: %s, objective value is %f residual is %f, time is %f, iteration time is %f" % (i,RDDSolver_cls.logstats(),oldObjQ, oldPrimalResidualQ, now-tstart,now-tlast))
@@ -109,6 +109,8 @@ if __name__=="__main__":
         
         helpers_GCP.upload_blob(args.bucket_name, args.outfile, outfile_name)
         helpers_GCP.upload_blob(args.bucket_name, args.logfile, logfile_name)
+        safeWrite_GCP(ZRDD,args.outputfile+"_ZRDD",args.bucket_name)
+        safeWrite_GCP(RDDSolver_cls.PrimalDualRDD,args.outputfile+"_PPhiRDD",args.bucket_name)
         
     
      

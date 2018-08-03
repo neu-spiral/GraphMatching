@@ -1,6 +1,6 @@
-from cvxopt import spmatrix,matrix,solvers
-from cvxopt.solvers import qp,lp
-from scipy.sparse import coo_matrix,csr_matrix
+#from cvxopt import spmatrix,matrix,solvers
+#from cvxopt.solvers import qp,lp
+#from scipy.sparse import coo_matrix,csr_matrix
 
 
 

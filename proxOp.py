@@ -46,7 +46,9 @@ def normp(RDD, p):
     norm_to_P =  RDD.values().map(lambda (x, x_sign):abs(x)**p).reduce(lambda x,y:x+y)
     return norm_to_P**(1./p)
 def pnorm_proxop(N, p, rho, epsilon):
-    """Solve prox operator for vector N and p-norm"""
+    """Solve prox operator for vector N and p-norm, i.e., the follwoing problem, via bisection
+           min_Z \|Z\|_p + rho/2 * \|Z-N\|_2^2
+    """
 
     t_start = time.time()
 

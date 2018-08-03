@@ -53,11 +53,6 @@ def pnormOp(NothersRDD,p, rho, epsilon):
     def pnorm(RDD, p):
         return (  RDD.values().flatMap(lambda (Nm, Others):[abs(Nm[key][0])**p for key in Nm]).reduce(lambda x,y:x+y) )**(1./p)
    
-    p_param = p
-    if p>2:
-        #If p parameter is larger than 2, solve the prox. operator for its dual.
-        p = p/(p-1.)
-        N_initial = NothersRDD
     
      #Normalize N
     NothersRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([ (key, (rho*abs(Nm[key]),sign(Nm[key]))) for key in Nm]), Others)).cache() 
@@ -81,11 +76,9 @@ def pnormOp(NothersRDD,p, rho, epsilon):
     #    print "Error in p-norm Prox. Op. is %f" %error
     #Denormalize the solution 
     YothersRDD = TempRDD.mapValues(lambda (Nm, Others):(dict([(key, Nm[key][1]*Nm[key][0]/rho) for key in Nm]), Others)).cache()
-    if p_param>=1 and p_param<=2:
-        Ypnorm =  YothersRDD.values().flatMap(lambda (Y, Others): [abs(Y[key])**p for key in Y]).reduce(lambda x,y:x+y)
-        Ypnorm = Ypnorm**(1./p)
-    elif p_param>2:
-        YothersRDD = YothersRDD.join(N_initial).mapValues(lambda ((Ynew, Others), (N_dict, Others_cp)): (dict([(key, (N_dict[key] - Ynew[key])) for key in Ynew]), Others)).cache()
+    #Compute the p-norm for the final solution
+    Ypnorm =  YothersRDD.values().flatMap(lambda (Y, Others): [abs(Y[key])**p for key in Y]).reduce(lambda x,y:x+y)
+    Ypnorm = Ypnorm**(1./p)
     return (YothersRDD, Ypnorm) 
 
     

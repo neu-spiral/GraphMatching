@@ -91,7 +91,7 @@ class ParallelSolverPnorm(ParallelSolver):
         """
         self.SolverClass=LocalSolverClass
         if RDD==None:
-            self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho).cache()    #LocalSolver class should implement class method initializeLocalVariables
+            self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho, rho_inner).cache()    #LocalSolver class should implement class method initializeLocalVariables
         else:
             self.PrimalDualRDD = RDD
         self.N = N
@@ -100,7 +100,7 @@ class ParallelSolverPnorm(ParallelSolver):
         self.rho_inner = rho_inner
         self.p = p
         self.varsToPartitions = self.PrimalDualRDD.flatMapValues( lambda  (solver,P,Y,Phi,Upsilon, stats) : P.keys()).map(swap).partitionBy(self.N).cache()
-    def joinAndAdapt(self,ZRDD, alpha, rho, checkpoint = False):
+    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-04, checkpoint = False):
         rho_inner = self.rho_inner
         p_param = self.p
         #Send z to the appropriate partitions
@@ -128,7 +128,7 @@ class ParallelSolverPnorm(ParallelSolver):
         ZbarPrimalDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Z): ( solver,P,Y,Phi,Upsilon,stats,dict( [(key, Z[key]-Phi[key]) for key in Z])))
         
         #Start the inner ADMM iterations
-        for i in range(100):
+        for i in range(maxiters):
             #Compute vectors Fm(Pm)
             FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),Y,Phi,Upsilon,stats,Zbar))
             if not self.lean:
@@ -154,7 +154,7 @@ class ParallelSolverPnorm(ParallelSolver):
             #Update P via solving a least-square problem
             ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
         
-            if DualInnerResidual<0.001 and OldinnerResidual<0.0001:
+            if DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
                 break
         self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache() 
 

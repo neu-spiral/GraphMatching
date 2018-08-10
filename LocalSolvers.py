@@ -716,7 +716,7 @@ class LocalL1Solver(LocalSolver):
 class LocalLpSolver(LocalSolver):
     """A class for updating P variables in the inner ADMM"""
     @classmethod
-    def initializeLocalVariables(cls,Sij,initvalue,N,rho):
+    def initializeLocalVariables(cls,Sij,initvalue,N,rho,rho_inner):
 
         if logger.getEffectiveLevel()==logging.DEBUG:
              logger.debug(Sij_test(G,graph1,graph2,Sij))
@@ -746,7 +746,7 @@ class LocalLpSolver(LocalSolver):
             stats['variables'] = len(P)
             stats['objectives'] = len(objectives)
 
-            return [(splitIndex,(cls(objectives,rho),P,Y,Phi,Upsilon,stats))]
+            return [(splitIndex,(cls(objectives,rho,rho_inner),P,Y,Phi,Upsilon,stats))]
 
         partitioned =  Sij.partitionBy(N)
         createVariables = partitioned.mapPartitionsWithIndex(createLocalPandPhiVariables)
@@ -755,7 +755,7 @@ class LocalLpSolver(LocalSolver):
         return PYPhiUpsilonRDD
         
 
-    def __init__(self, objectives,rho=None):
+    def __init__(self, objectives,rho=None, rho_inner=None):
         objectives = dict(objectives)
         #Create a dictioanry for translating variables to coordinates.
         n_i = 0
@@ -775,7 +775,7 @@ class LocalLpSolver(LocalSolver):
                     n_i = n_i+1
             translate_ij2coordinates_Y[key] = p_i
             p_i = p_i +1
-        #Create the structure matrix D.
+        #Create the structure matrix D and the pre-compute the A matrix in the leat-square problem. 
         D = np.matrix( np.zeros((P, n_i)))
         row = 0
         for key in objectives:
@@ -788,8 +788,12 @@ class LocalLpSolver(LocalSolver):
                 else:
                     D[row, translate_ij2coordinates[var]] = 0.
             row = row+1
-        self.objectives = objectives
+        #invA = (rho I + rho_inner D.T * D)^-1
+        invA = inv(rho* np.matrix(np.identity(n_i)) + rho_inner * D.T * D)
+       
         self.D = D
+        self.invA =invA
+        self.objectives = objectives
         self.translate_ij2coordinates = translate_ij2coordinates
         self.translate_coordinates2ij = dict([(translate_ij2coordinates[key], key) for key in translate_ij2coordinates])
         self.translate_ij2coordinates_Y = translate_ij2coordinates_Y
@@ -809,7 +813,7 @@ class LocalLpSolver(LocalSolver):
         for i in range(P_i):
             Y_vec[i] = Y[self.translate_coordinates2ij_Y[i]]
             Upsilon_vec[i] = Upsilon[self.translate_coordinates2ij_Y[i]]
-        p_vec = inv(rho* np.matrix(np.identity(N_i)) + rho_inner * self.D.T * self.D) *(rho * zbar_vec + rho_inner * self.D.T *(Y_vec+Upsilon_vec))
+        p_vec = self.invA *(rho * zbar_vec + rho_inner * self.D.T *(Y_vec+Upsilon_vec))
         newp = dict( [(self.translate_coordinates2ij[i], float(p_vec[i]) ) for i in range(N_i)])
         rhoerr = rho/2.* float( (p_vec-zbar_vec).T * (p_vec-zbar_vec))
         stats = {'rhoerr':rhoerr}

@@ -162,7 +162,8 @@ if __name__=="__main__":
 	    G = matchColors(color1,color2, numPartitions=args.N).persist(storage_level) 	
         if args.outputconstraintfile:
             logger.info('Write  constraints')
-            safeWrite(G,args.outputconstraintfile,args.driverdump)
+            G.saveAsTextFile(args.outputconstraintfile)
+            #safeWrite(G,args.outputconstraintfile,args.driverdump)
     else:
         logger.info('Read  constraints')
         G=sc.textFile(args.inputconstraintfile,minPartitions=args.N).map(eval)

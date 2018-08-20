@@ -3,23 +3,22 @@ import numpy as np
 from pyspark import SparkContext,SparkConf,StorageLevel
 from operator import add
 from helpers import safeWrite
-from Characteristics import paths_and_cycles
+from time import time
 
-def euclidean_dist(dict1, dict2):
-    sum = 0.0
-    for key in dict1:
-        for i in range(len(dict1[key])):
-            sum += (dict1[key][i] - dict2[key][i])**2
-    return np.sqrt(sum)
+def euclidean_dist(attr1, attr2):
+    return np.sqrt(np.sum((attr1 - attr2)**2))
 
-def distance(characteristics1, characteristics2, graph, N):
-    """Takes rdds of the number of cycles and paths for each node of two different graphs and computes the distance
-    between each node related by a third graph"""
+def distance(characteristics1, characteristics2, constraints, N):
+    """Takes rdds of all the attributes of two different graphs and computes the distance
+    between each node related by a bipartite constraint graph"""
 
-    distances = graph.join(characteristics1).map(lambda (n1, (n2, dict)): (n2, (n1, dict)))\
-        .join(characteristics2).map(lambda (n2, ((n1, dict1), dict2)): ((n1, n2), (dict1, dict2)))\
+    characteristics1 = characteristics1.mapValues(lambda attributes_list: np.array(attributes_list))
+    characteristics2 = characteristics2.mapValues(lambda attributes_list: np.array(attributes_list))
+
+    distances = constraints.join(characteristics1).map(lambda (n1, (n2, attributes)): (n2, (n1, attributes)))\
+        .join(characteristics2).map(lambda (n2, ((n1, attr1), attr2)): ((n1, n2), (attr1, attr2)))\
         .partitionBy(N)\
-        .mapValues(lambda (dict1, dict2): euclidean_dist(dict1, dict2))
+        .mapValues(lambda (attr1, attr2): euclidean_dist(attr1, attr2))
 
     return distances
 
@@ -27,15 +26,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Finds distance between nodes of two graphs',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('connection_graph',
-                        help ='Input Graph. The input should be a file containing one match per line, '
-                             'with each match represented as a tuple of the form: (graph1_node, graph2_node).')
+                        help ='Input constraints bipartite connections graph. The input should be files containing '
+                              'one match per line, with each match represented as a tuple of the form: '
+                              '(graph1_node, graph2_node).')
     parser.add_argument('chars1',
-                        help ='Input rdd. The input files containing tuples of each node in graph 1 with a dictionary '
-                              'of that node\'s attributes.')
+                        help ='Input rdd. The input files containing tuples of each node in graph 1 with a list '
+                              'of all of the attributes belonging to that node.')
     parser.add_argument('chars2',
-                        help ='Input rdd. The input files containing tuples of each node in graph 2 with a dictionary '
-                              'of that node\'s attributes.')
+                        help ='Input rdd. The input files containing tuples of each node in graph 2 with a list '
+                              'of all of the attributes belonging to that node.')
     parser.add_argument('outputfile', help = 'Directory to store output distances.')
+    parser.add_argument('--time_outputfile', default = None, help = 'file to store runtime')
+    parser.add_argument('--graphName', default = None, help = 'name of graph for runtime file')
     parser.add_argument('--N',type=int, default=20, help = 'Level of Parallelism')
     args = parser.parse_args()
 
@@ -44,9 +46,18 @@ if __name__ == "__main__":
     sc = SparkContext(appName='Distance', conf=configuration)
     sc.setLogLevel("ERROR")
 
-    connection_graph = sc.textFile(args.connection_graph).map(eval).partitionBy(args.N).cache()
+    constraints = sc.textFile(args.connection_graph).map(eval).partitionBy(args.N).cache()
     characteristics1 = sc.textFile(args.chars1).map(eval).partitionBy(args.N).cache()
     characteristics2 = sc.textFile(args.chars2).map(eval).partitionBy(args.N).cache()
 
-    distance = distance(characteristics1, characteristics2, connection_graph, args.N)
+    start_time = time()
+    distance = distance(characteristics1, characteristics2, constraints, args.N)
+    pairs = float(distance.count())
+    print(distance.values().reduce(add)/pairs)
+    tot_time = time() - start_time
+
     safeWrite(distance, args.outputfile)
+
+    if args.time_outputfile:
+        with open(args.time_outputfile, 'a') as file:
+            file.write("%s \t %f \n" %(args.graphName, tot_time))

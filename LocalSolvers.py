@@ -800,6 +800,7 @@ class LocalLpSolver(LocalSolver):
         self.translate_coordinates2ij_Y = dict([(translate_ij2coordinates_Y[key], key) for key in translate_ij2coordinates_Y])
         self.num_variables = len(translate_ij2coordinates)
         self.rho = rho
+        self.rho_inner = rho_inner
     def solve(self, Y, zbar, Upsilon, rho, rho_inner):
         """Solve the LS problem"""
         N_i = len(self.translate_ij2coordinates)
@@ -832,6 +833,10 @@ class LocalLpSolver(LocalSolver):
                 Y_elem -= z[key]
             s += abs(Y_elem)**p
         return s
+    def __repr__(self):
+        return '(' + str(self.objectives) + ',' + str(self.rho) +  ',' + str(self.rho_inner) + ')'
+    def __str__(self):
+        return self.__repr__()
                         
         
         

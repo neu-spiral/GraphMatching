@@ -159,7 +159,7 @@ if __name__=="__main__":
         elif args.constraintmethod == 'WL':
 	    color1 = WL(graph1,logger,depth=args.k,numPartitions=args.N) 
 	    color2 = WL(graph2,logger,depth=args.k,numPartitions=args.N) 
-	    G = matchColors(color1,color2).persist(storage_level) 	
+	    G = matchColors(color1,color2, numPartitions=args.N).persist(storage_level) 	
         if args.outputconstraintfile:
             logger.info('Write  constraints')
             safeWrite(G,args.outputconstraintfile,args.driverdump)

@@ -74,6 +74,14 @@ def pnormOp(NothersRDD,p, rho, epsilon):
             Y_norm_L = Y_norm
         error = (Y_norm_U-Y_norm_L)/N_norm
     #    print "Error in p-norm Prox. Op. is %f" %error
+##################################
+    #Test optimality
+    #Ypnorm =  TempRDD.values().flatMap(lambda (Y, Others): [Y[key][0]**p for key in Y]).reduce(lambda x,y:x+y)
+    #Ypnorm = Ypnorm**(1./p)
+
+
+    #print TempRDD.join(NothersRDD).mapValues(lambda ( (Ynew, Others), (Nm, Others_cp ) ): dict([(key, (Ynew[key][0]/Ypnorm)**(p-1)+Ynew[key][0]-Nm[key][0]) for key in Ynew])).collect()
+###################################
     #Denormalize the solution 
     YothersRDD = TempRDD.mapValues(lambda (Nm, Others):(dict([(key, Nm[key][1]*Nm[key][0]/rho) for key in Nm]), Others)).cache()
     #Compute the p-norm for the final solution

@@ -158,8 +158,8 @@ if __name__=="__main__":
 	    #G.checkpoint()
         elif args.constraintmethod == 'WL':
 	    color1 = WL(graph1,logger,depth=args.k,numPartitions=args.N) 
-	    color2 = WL(graph2,logger,depth=args.k,numPartitions=args.N)
-	    G = matchColors(color1,color2).persist(storage_level)
+	    color2 = WL(graph2,logger,depth=args.k,numPartitions=args.N) 
+	    G = matchColors(color1,color2, numPartitions=args.N).persist(storage_level) 	
         if args.outputconstraintfile:
             logger.info('Write  constraints')
             G.saveAsTextFile(args.outputconstraintfile)

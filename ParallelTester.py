@@ -5,7 +5,7 @@ from ParallelSolvers import ParallelSolver, ParallelSolverPnorm
 from pyspark import SparkContext, StorageLevel
 from debug import logger
 from helpers import clearFile
-#import helpers_GCP
+import helpers_GCP
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Parallel Graph Matching Test.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('outfile', type=str, help='File to store running ansd time.')
@@ -109,13 +109,13 @@ if __name__=="__main__":
     #If running on google cloud upload the outfile and logfile to the bucket
     if args.GCP:
        #File names are specified by 
-        outfile_name = args.outfile.split('/')[-1]
-        logfile_name = args.logfile.split('/')[-1]
-        
+        outfile_name = "profiling/L1.5/" + args.outfile.split('/')[-1]
+        logfile_name = "profiling/L1.5/" + args.logfile.split('/')[-1]
+         
         helpers_GCP.upload_blob(args.bucket_name, args.outfile, outfile_name)
         helpers_GCP.upload_blob(args.bucket_name, args.logfile, logfile_name)
-        safeWrite_GCP(ZRDD,args.outputfile+"_ZRDD",args.bucket_name)
-        safeWrite_GCP(RDDSolver_cls.PrimalDualRDD,args.outputfile+"_PPhiRDD",args.bucket_name)
+    #    helpers_GCP.safeWrite_GCP(ZRDD,args.outfile+"_ZRDD",args.bucket_name)
+    #    helpers_GCP.safeWrite_GCP(RDDSolver_cls.PrimalDualRDD,args.outfile+"_PPhiRDD",args.bucket_name)
         
     
      

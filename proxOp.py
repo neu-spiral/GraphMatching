@@ -56,24 +56,32 @@ def pnormOp(NothersRDD,p, rho, epsilon):
     
      #Normalize N
     NothersRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([ (key, (rho*abs(Nm[key]),sign(Nm[key]))) for key in Nm]), Others)).cache() 
+ 
+    #q, s.t., 1/p + 1/q = 1
+    q = p/(p-1.)
+    N_qnorm = pnorm(NothersRDD, q)
+    if N_qnorm<=1.:
+        print N_qnorm
+        YothersRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, 0.0 ) for key in Nm]) ,Others) ).cache()
+        Ypnorm = 0.0
+    else:
+        N_norm = pnorm(NothersRDD, p)
     
-    N_norm = pnorm(NothersRDD, p)
-    
-    Y_norm_L = 0.
-    Y_norm_U = N_norm
+        Y_norm_L = 0.
+        Y_norm_U = N_norm
 
-    error = epsilon + 1
-    while error>epsilon:
-        Y_norm = (Y_norm_L + Y_norm_U)/2   
-        TempRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, ( Nm[key][0]*solve_ga_bisection(Y_norm *Nm[key][0] **((2-p)/(p-1)),  p ), Nm[key][1]) ) for key in Nm]) ,Others) )
+        error = epsilon + 1
+        while error>epsilon:
+            Y_norm = (Y_norm_L + Y_norm_U)/2   
+            TempRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, ( Nm[key][0]*solve_ga_bisection(Y_norm *Nm[key][0] **((2-p)/(p-1)),  p ), Nm[key][1]) ) for key in Nm]) ,Others) )
       
-        Y_norm_current = pnorm(TempRDD, p)
-        if Y_norm_current<Y_norm:
-            Y_norm_U = Y_norm
-        else:
-            Y_norm_L = Y_norm
-        error = (Y_norm_U-Y_norm_L)/N_norm
-    #    print "Error in p-norm Prox. Op. is %f" %error
+            Y_norm_current = pnorm(TempRDD, p)
+            if Y_norm_current<Y_norm:
+                Y_norm_U = Y_norm
+            else:
+                Y_norm_L = Y_norm
+            error = (Y_norm_U-Y_norm_L)/N_norm
+            print "Error in p-norm Prox. Op. is %f" %error
 ##################################
     #Test optimality
     #Ypnorm =  TempRDD.values().flatMap(lambda (Y, Others): [Y[key][0]**p for key in Y]).reduce(lambda x,y:x+y)
@@ -82,11 +90,11 @@ def pnormOp(NothersRDD,p, rho, epsilon):
 
     #print TempRDD.join(NothersRDD).mapValues(lambda ( (Ynew, Others), (Nm, Others_cp ) ): dict([(key, (Ynew[key][0]/Ypnorm)**(p-1)+Ynew[key][0]-Nm[key][0]) for key in Ynew])).collect()
 ###################################
-    #Denormalize the solution 
-    YothersRDD = TempRDD.mapValues(lambda (Nm, Others):(dict([(key, Nm[key][1]*Nm[key][0]/rho) for key in Nm]), Others)).cache()
-    #Compute the p-norm for the final solution
-    Ypnorm =  YothersRDD.values().flatMap(lambda (Y, Others): [abs(Y[key])**p for key in Y]).reduce(lambda x,y:x+y)
-    Ypnorm = Ypnorm**(1./p)
+        #Denormalize the solution 
+        YothersRDD = TempRDD.mapValues(lambda (Nm, Others):(dict([(key, Nm[key][1]*Nm[key][0]/rho) for key in Nm]), Others)).cache()
+        #Compute the p-norm for the final solution
+        Ypnorm =  YothersRDD.values().flatMap(lambda (Y, Others): [abs(Y[key])**p for key in Y]).reduce(lambda x,y:x+y)
+        Ypnorm = Ypnorm**(1./p)
     return (YothersRDD, Ypnorm) 
 
     

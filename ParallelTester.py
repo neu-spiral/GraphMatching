@@ -1,7 +1,7 @@
 import time
 import argparse,logging
-from LocalSolvers import LocalL1Solver, LocalRowProjectionSolver, LocalL1Solver_Old, LocalLpSolver
-from ParallelSolvers import ParallelSolver, ParallelSolverPnorm
+from LocalSolvers import LocalL1Solver, LocalRowProjectionSolver, LocalL1Solver_Old, LocalLSSolver
+from ParallelSolvers import ParallelSolver, ParallelSolverPnorm, ParallelSolver1norm, ParallelSolver2norm
 from pyspark import SparkContext, StorageLevel
 from debug import logger
 from helpers import clearFile
@@ -11,6 +11,7 @@ if __name__=="__main__":
     parser.add_argument('outfile', type=str, help='File to store running ansd time.')
     parser.add_argument('data',type=str,help ="File containing data, either constraints or objectives.")
     parser.add_argument('--G', type=str,help="File containing the variables.")
+    parser.add_argument('--ParallelSolver',default='ParallelSolver', help='Parallel Solver')
     parser.add_argument('--solver',default='LocalL1Solver', help='Local Solver')
     parser.add_argument('--rho',default=1.0,type=float, help='Rho value, used for primal variables')
     parser.add_argument('--N',default=1,type=int, help='Level of parallelism')
@@ -54,8 +55,9 @@ if __name__=="__main__":
 
 
     SolverClass = eval(args.solver)
+    ParallelSolverClass = eval(args.ParallelSolver)
     N = args.N
-    uniformweight = 1/2000.
+    uniformweight = 1/2.
     alpha = args.alpha
     rho = args.rho
     p = args.p
@@ -69,10 +71,10 @@ if __name__=="__main__":
     tstart = time.time()
     tlast = tstart
     #Initiate the ParallelSolver object
-    if SolverClass == LocalLpSolver:
-        RDDSolver_cls = ParallelSolverPnorm(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight*2, N=N, rho=rho, p=p, rho_inner=rho)
+    if ParallelSolverClass == ParallelSolver:
+        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight*2, N=N, rho=rho)
     else:
-        RDDSolver_cls = ParallelSolverPnorm(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight*2, N=N, rho=rho)
+        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight*2, N=N, rho=rho, p=p, rho_inner=rho)
 
 
     #Create consensus variable, initialized to uniform assignment ignoring constraints
@@ -83,7 +85,7 @@ if __name__=="__main__":
     for i in range(args.maxiters):
         chckpnt = (i!=0 and i % args.checkpoint_freq==0)
         OldZ=ZRDD
-        (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt)
+        (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt, residual_tol=1.e-03)
 
         allvars = RDDSolver_cls.getVars(rho)
 
@@ -101,9 +103,10 @@ if __name__=="__main__":
 
     #Write the results to file.
     Num_vars = G.count()
+    Num_objs = data.count()
     fP = open(args.outfile, 'w')
-    fP.write('(veriables, time)\n')
-    fP.write('(%d, %f)' %(Num_vars, tend-tstart))
+    fP.write('(veriables, objectives, time)\n')
+    fP.write('(%d, %d, %f)' %(Num_vars, Num_objs, tend-tstart))
     fP.close() 
   
     #If running on google cloud upload the outfile and logfile to the bucket

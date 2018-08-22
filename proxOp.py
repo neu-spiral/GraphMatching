@@ -2,11 +2,11 @@ import argparse
 from pyspark import SparkContext
 from math import sqrt
 from numpy import sign 
-
+from numpy import sqrt
 from numpy import linalg as LA
 import time
 #from helpers_GCP import safeWrite_GCP, upload_blob
-from helpers import safeWrite
+from helpers import safeWrite, softThresholding, EuclidianPO
 
 def solve_ga_bisection(a, p):
     """Return the solution of (x/a)^(p-1)+x=1, via bi-section method."""
@@ -97,6 +97,28 @@ def pnormOp(NothersRDD,p, rho, epsilon):
         Ypnorm = Ypnorm**(1./p)
     return (YothersRDD, Ypnorm) 
 
+
+def L1normOp(NothersRDD, rho):
+    """Prox. operator for p-norm, i.e., solve the following problem:
+           min_Y \|Y\|_1 + rho/2*\|Y-N\|_2^2,
+        where N values are given in NothersRDD, s.t., each partition i contains (N_i, Others_i) and N_i is a dictionary. The solution is simly given by appllying soft threasholding 
+    """
+    YothersRDD =  NothersRDD.mapValues(lambda (Nm, Others): (dict( [(key, softThresholding(Nm[key], 1./rho)) for key in Nm] ), Others) ).cache()
+    Y1norm = YothersRDD.values().flatMap(lambda (Y, Others):[abs(Y[key]) for key in Y]).reduce(lambda x,y:x+y)
+    return (YothersRDD, Y1norm)
+
+def EuclidiannormOp(NothersRDD, rho):
+    """Prox. operator for p-norm, i.e., solve the following problem:
+           min_Y \|Y\|_2 + rho/2*\|Y-N\|_2^2,
+        where N values are given in NothersRDD, s.t., each partition i contains (N_i, Others_i) and N_i is a dictionary. The solution is simly given by appllying Euclidian norm proximal operator, which has a closed-form solution. 
+    """
+    def L2norm(RDD):
+        return sqrt( RDD.values().flatMap(lambda (Y, Others):[Y[key]**2 for key in Y]).reduce(lambda x,y:x+y) )
+
+    N_norm = L2norm(NothersRDD)
+    YothersRDD =  NothersRDD.mapValues(lambda (Nm, Others): (dict( [(key, EuclidianPO(Nm[key], 1./rho, N_norm)) for key in Nm] ), Others) ).cache()
+    Y2norm = L2norm(YothersRDD)
+    return (YothersRDD, Y2norm)
     
 def pnorm_proxop(N, p, rho, epsilon):
     """Solve prox operator for vector N and p-norm, i.e., the follwoing problem, via bisection

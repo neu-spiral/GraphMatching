@@ -713,7 +713,7 @@ class LocalL1Solver(LocalSolver):
         return result
     def variables(self):
         return self.translate_ij2coordinates.keys()
-class LocalLpSolver(LocalSolver):
+class LocalLSSolver(LocalSolver):
     """A class for updating P variables in the inner ADMM"""
     @classmethod
     def initializeLocalVariables(cls,Sij,initvalue,N,rho,rho_inner):
@@ -802,7 +802,9 @@ class LocalLpSolver(LocalSolver):
         self.rho = rho
         self.rho_inner = rho_inner
     def solve(self, Y, zbar, Upsilon, rho, rho_inner):
-        """Solve the LS problem"""
+        """Solve the follwing quadratic problem:
+               min_P 0.5*rho \|P-zbar\|_2^2 + 0.5*rho_inner \| D*P - (Y+Upsilon)\|_2^2 
+        """
         N_i = len(self.translate_ij2coordinates)
         P_i = len(self.translate_ij2coordinates_Y)
         zbar_vec = np.matrix(np.zeros((N_i,1)))

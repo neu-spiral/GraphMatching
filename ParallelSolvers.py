@@ -11,8 +11,7 @@ from time import time
 import argparse
 from pyspark import SparkContext
 from operator import add,and_
-from LocalSolvers import LocalLpSolver
-from proxOp import pnormOp,pnorm_proxop
+from proxOp import pnormOp,pnorm_proxop, L1normOp, EuclidiannormOp
 
 
 class ParallelSolver():
@@ -127,6 +126,7 @@ class ParallelSolverPnorm(ParallelSolver):
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
         ZbarPrimalDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Z): ( solver,P,Y,Phi,Upsilon,stats,dict( [(key, Z[key]-Phi[key]) for key in Z])))
         
+        last = time()
         #Start the inner ADMM iterations
         for i in range(maxiters):
             #Compute vectors Fm(Pm)
@@ -158,8 +158,9 @@ class ParallelSolverPnorm(ParallelSolver):
 
  
             objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
-            print "Iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual)
-        
+            now = time()
+            print "Iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last)
+            last = time()
             if DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
                 break
         self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache() 
@@ -191,4 +192,158 @@ class ParallelSolverPnorm(ParallelSolver):
            
            
                                                      
- 
+class ParallelSolver1norm(ParallelSolverPnorm):
+    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False):
+        rho_inner = self.rho_inner
+        p_param = 1
+        #Send z to the appropriate partitions
+        def Fm(objs,P):
+            """
+                Compute the FPm functions, i.e., FPm = \sum_{ij\in S1} P[(i,j)]-\sum_{ij \in S2} P[(i,j)]
+            """
+            FPm = {}
+            for edge  in objs:
+                (set1, set2) = objs[edge]
+                tmp_val = 0.0
+                for key in set1:
+                    tmp_val += P[key]
+                for key in set2:
+                    tmp_val -= P[key]
+                FPm[edge] = tmp_val
+            return FPm
+
+        ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
+        PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
+        if not self.lean:
+            oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
+            oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z, p_param)).reduce(add))**(1./p_param)  #local solver should compute p-norm to the power p. 
+        PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
+        ZbarPrimalDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Z): ( solver,P,Y,Phi,Upsilon,stats,dict( [(key, Z[key]-Phi[key]) for key in Z])))
+
+        last = time()
+        #Start the inner ADMM iterations
+        for i in range(maxiters):
+            #Compute vectors Fm(Pm)
+            FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),Y,Phi,Upsilon,stats,Zbar))
+            if not self.lean:
+               #Compute the residual 
+                OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
+
+
+            ##ADMM steps
+            #Adapt the dual varible Upsilon
+            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
+
+
+            #Update Y via prox. op. for ell_1 norm
+            NewYUpsilonPhi, Ynorm = L1normOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, Y, Phi, Upsilon,stats,Zbar)  ) ), rho_inner )
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldY, Phi, Upsilon, stats, Zbar)): (solver, Y, OldY, Phi, Upsilon,stats, Zbar) )
+
+
+            if not self.lean:
+               #Compute the dual residual 
+                DualInnerResidual = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
+
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar):(solver, Y, Phi, Upsilon,stats, Zbar) )
+
+
+            #Update P via solving a least-square problem
+            ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
+
+
+            objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
+            now = time()
+            print "Iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, iteration time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last)
+            last = time()
+            
+
+            if DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
+                break
+        self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache()
+
+        #Checkpointing
+        if checkpoint:
+            self.PrimalDualRDD.localCheckpoint()
+
+        if not self.lean:
+            return (oldPrimalResidual,oldObjValue)
+        else:
+            return None
+
+class ParallelSolver2norm(ParallelSolverPnorm):
+    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False):
+        rho_inner = self.rho_inner
+        p_param = 2
+        #Send z to the appropriate partitions
+        def Fm(objs,P):
+            """
+                Compute the FPm functions, i.e., FPm = \sum_{ij\in S1} P[(i,j)]-\sum_{ij \in S2} P[(i,j)]
+            """
+            FPm = {}
+            for edge  in objs:
+                (set1, set2) = objs[edge]
+                tmp_val = 0.0
+                for key in set1:
+                    tmp_val += P[key]
+                for key in set2:
+                    tmp_val -= P[key]
+                FPm[edge] = tmp_val
+            return FPm
+
+        ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
+        PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
+        if not self.lean:
+            oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
+            oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z, p_param)).reduce(add))**(1./p_param)  #local solver should compute p-norm to the power p. 
+        PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
+        ZbarPrimalDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Z): ( solver,P,Y,Phi,Upsilon,stats,dict( [(key, Z[key]-Phi[key]) for key in Z])))
+
+   
+        last = time()
+        #Start the inner ADMM iterations
+        for i in range(maxiters):
+            #Compute vectors Fm(Pm)
+            FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),Y,Phi,Upsilon,stats,Zbar))
+            if not self.lean:
+               #Compute the residual 
+                OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
+
+
+            ##ADMM steps
+            #Adapt the dual varible Upsilon
+            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
+
+
+            #Update Y via prox. op. for ell_2 norm
+            NewYUpsilonPhi, Ynorm = EuclidiannormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, Y, Phi, Upsilon,stats,Zbar)  ) ),  rho_inner )
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldY, Phi, Upsilon, stats, Zbar)): (solver, Y, OldY, Phi, Upsilon,stats, Zbar) )
+        
+
+            if not self.lean:
+               #Compute the dual residual 
+                DualInnerResidual = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
+
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar):(solver, Y, Phi, Upsilon,stats, Zbar) )
+
+
+            #Update P via solving a least-square problem
+            ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
+
+
+            objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
+            now = time()
+            print "Iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, iteration time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last)
+            last = time()
+
+            if DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
+                break
+        self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache()
+
+        #Checkpointing
+        if checkpoint:
+            self.PrimalDualRDD.localCheckpoint()
+
+        if not self.lean:
+            return (oldPrimalResidual,oldObjValue)
+        else:
+            return None

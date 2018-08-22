@@ -125,3 +125,26 @@ def projectToPositiveSimplex(x,r):
     return y
 
 
+def softThresholding(x, k):
+    """Implementation of the soft thresholding operator defined as:
+            (1) if  x>k: S_k(x) = x - k
+            (2) if  |x|<=k: S_k(x) = 0
+            (3) if  x<-k: S_k(x) = x + k
+    """
+    if x>k:
+       out = x - k
+    elif abs(x)<=k:
+        out = 0.
+    elif x<-k:
+        out = x+k
+    return out
+def EuclidianPO(x, k, norm_X):
+    """ Proximal operator for Euclidian norm. It returns:
+            prox_k(x) = (1 - k/max(k, \|X\|_2))x
+    """
+    if norm_X<=k:
+        out = 0.0
+    else:
+        out = (1 - k/norm_X) * x
+    return out 
+        

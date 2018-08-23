@@ -130,32 +130,40 @@ class ParallelSolverPnorm(ParallelSolver):
         #Start the inner ADMM iterations
         for i in range(maxiters):
             #Compute vectors Fm(Pm)
-            FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),Y,Phi,Upsilon,stats,Zbar))
+            FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),P,Y,Phi,Upsilon,stats,Zbar))
             if not self.lean:
                #Compute the residual 
-                OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
+                OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,OldP,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
 
 
             ##ADMM steps
             #Adapt the dual varible Upsilon
-            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
+            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
  
 
             #Update Y via prox. op. for p-norm
-            NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, Y, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-6 )
-            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldY, Phi, Upsilon, stats, Zbar)): (solver, Y, OldY, Phi, Upsilon,stats, Zbar) )
+            NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-6 )
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
 
 
             if not self.lean:
-               #Compute the dual residual 
-                DualInnerResidual = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
+               #Compute the dual residual for Y
+                DualInnerResidual_Y = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
 
-            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar):(solver, Y, Phi, Upsilon,stats, Zbar) )
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar):(solver, OldP, Y, Phi, Upsilon,stats, Zbar) )
 
            
             #Update P via solving a least-square problem
-            ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
+            ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver, OldP, Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner),OldP, Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats),OldP, Y, Phi, Upsilon, stats_old, Zbar): (solver,P,OldP,Y,Phi,Upsilon, stats, Zbar))
 
+
+            if not self.lean:
+                #Compute the dual residual for P
+                DualInnerResidual_P = np.sqrt( ZbarPrimalDual.values().flatMap(lambda (solver,P,OldP,Y,Phi,Upsilon, stats, Zbar):  [ (P[key] -OldP[key])**2 for key in P]).reduce(add) )
+                #Total dual residual 
+                DualInnerResidual = DualInnerResidual_P + DualInnerResidual_Y
+
+            ZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,OldP,Y,Phi,Upsilon, stats, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
  
             objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
             now = time()
@@ -224,31 +232,41 @@ class ParallelSolver1norm(ParallelSolverPnorm):
         #Start the inner ADMM iterations
         for i in range(maxiters):
             #Compute vectors Fm(Pm)
-            FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),Y,Phi,Upsilon,stats,Zbar))
+            FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),P,Y,Phi,Upsilon,stats,Zbar))
             if not self.lean:
                #Compute the residual 
-                OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
+                OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,OldP,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
 
 
             ##ADMM steps
             #Adapt the dual varible Upsilon
-            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
+            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm, OldP,Y,Phi,Upsilon,stats,Zbar): (solver, FPm,OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
 
 
             #Update Y via prox. op. for ell_1 norm
-            NewYUpsilonPhi, Ynorm = L1normOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, Y, Phi, Upsilon,stats,Zbar)  ) ), rho_inner )
-            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldY, Phi, Upsilon, stats, Zbar)): (solver, Y, OldY, Phi, Upsilon,stats, Zbar) )
+            NewYUpsilonPhi, Ynorm = L1normOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm,OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP,Y, Phi, Upsilon,stats,Zbar)  ) ), rho_inner )
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
 
 
             if not self.lean:
-               #Compute the dual residual 
-                DualInnerResidual = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
+               #Compute the dual residual for Y
+                DualInnerResidual_Y = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
 
-            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar):(solver, Y, Phi, Upsilon,stats, Zbar) )
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar):(solver, OldP, Y, Phi, Upsilon,stats, Zbar) )
 
 
             #Update P via solving a least-square problem
-            ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
+            ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver, OldP, Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), OldP, Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), OldP, Y, Phi, Upsilon, stats_old, Zbar): (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar))
+
+
+
+            if not self.lean:
+                #Compute the dual residual for P
+                DualInnerResidual_P = np.sqrt( ZbarPrimalDual.values().flatMap(lambda (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar):  [ (P[key] -OldP[key])**2 for key in P]).reduce(add) )
+                #Total dual residual 
+                DualInnerResidual = DualInnerResidual_P + DualInnerResidual_Y
+
+            ZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
 
 
             objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
@@ -303,31 +321,40 @@ class ParallelSolver2norm(ParallelSolverPnorm):
         #Start the inner ADMM iterations
         for i in range(maxiters):
             #Compute vectors Fm(Pm)
-            FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),Y,Phi,Upsilon,stats,Zbar))
+            FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),P,Y,Phi,Upsilon,stats,Zbar))
             if not self.lean:
                #Compute the residual 
-                OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
+                OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,OldP,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
 
 
             ##ADMM steps
             #Adapt the dual varible Upsilon
-            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
+            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
 
 
             #Update Y via prox. op. for ell_2 norm
-            NewYUpsilonPhi, Ynorm = EuclidiannormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, Y, Phi, Upsilon,stats,Zbar)  ) ),  rho_inner )
-            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldY, Phi, Upsilon, stats, Zbar)): (solver, Y, OldY, Phi, Upsilon,stats, Zbar) )
+            NewYUpsilonPhi, Ynorm = EuclidiannormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm,OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ),  rho_inner )
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
         
 
             if not self.lean:
-               #Compute the dual residual 
-                DualInnerResidual = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
+               #Compute the dual residual for Y
+                DualInnerResidual_Y = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
 
-            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (solver, Y, OldY, Phi, Upsilon,stats, Zbar):(solver, Y, Phi, Upsilon,stats, Zbar) )
+            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar):(solver, OldP, Y, Phi, Upsilon,stats, Zbar) )
 
 
             #Update P via solving a least-square problem
-            ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver,  Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), Y, Phi, Upsilon, stats_old, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
+            ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver, OldP, Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner),OldP, Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), OldP, Y, Phi, Upsilon, stats_old, Zbar): (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar))
+
+
+            if not self.lean:
+                #Compute the dual residual for P
+                DualInnerResidual_P = np.sqrt( ZbarPrimalDual.values().flatMap(lambda (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar):  [ (P[key] -OldP[key])**2 for key in P]).reduce(add) )
+                #Total dual residual 
+                DualInnerResidual = DualInnerResidual_P + DualInnerResidual_Y
+
+            ZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
 
 
             objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm

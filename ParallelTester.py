@@ -6,6 +6,8 @@ from pyspark import SparkContext, StorageLevel
 from debug import logger
 from helpers import clearFile
 import helpers_GCP
+import numpy as np
+from operator import add,and_
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Parallel Graph Matching Test.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('outfile', type=str, help='File to store running ansd time.')
@@ -14,6 +16,7 @@ if __name__=="__main__":
     parser.add_argument('--ParallelSolver',default='ParallelSolver', help='Parallel Solver')
     parser.add_argument('--solver',default='LocalL1Solver', help='Local Solver')
     parser.add_argument('--rho',default=1.0,type=float, help='Rho value, used for primal variables')
+    parser.add_argument('--rho_inner',default=1.0,type=float, help='Rho paramter for Inner ADMM')
     parser.add_argument('--N',default=1,type=int, help='Level of parallelism')
     parser.add_argument('--alpha',default=1.0,type=float, help='Alpha value, used for dual variables')
     parser.add_argument('--maxiters',default=20, type=int, help='Max iterations to run the algorithm.')
@@ -57,9 +60,10 @@ if __name__=="__main__":
     SolverClass = eval(args.solver)
     ParallelSolverClass = eval(args.ParallelSolver)
     N = args.N
-    uniformweight = 1/2.
+    uniformweight = 1/2000.
     alpha = args.alpha
     rho = args.rho
+    rho_inner = args.rho_inner
     p = args.p
 
     data = sc.textFile(args.data).map(lambda x:eval(x)).partitionBy(N).persist(StorageLevel.MEMORY_ONLY)
@@ -72,30 +76,32 @@ if __name__=="__main__":
     tlast = tstart
     #Initiate the ParallelSolver object
     if ParallelSolverClass == ParallelSolver:
-        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight*2, N=N, rho=rho)
+        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=N, rho=rho)
     else:
-        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight*2, N=N, rho=rho, p=p, rho_inner=rho)
+        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=N, rho=rho, p=p, rho_inner=rho_inner)
 
 
     #Create consensus variable, initialized to uniform assignment ignoring constraints
     ZRDD = G.map(lambda var:(var,uniformweight)).partitionBy(N).persist(StorageLevel.MEMORY_ONLY)
 
-    logger.info("Iinitial row (Q/Xi) stats: %s" %RDDSolver_cls.logstats())
+    logger.info("Iinitial row (Primal/Dual) stats: %s" %RDDSolver_cls.logstats())
 
     for i in range(args.maxiters):
         chckpnt = (i!=0 and i % args.checkpoint_freq==0)
         OldZ=ZRDD
-        (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt, residual_tol=1.e-02)
+        (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger)
 
         allvars = RDDSolver_cls.getVars(rho)
 
         ZRDD = allvars.reduceByKey(lambda (value1,count1),(value2,count2) : (value1+value2,count1+count2)  ).mapValues(lambda (value,count): 1.0*value/count).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        #Evaluate dual residuals:
+        dualresidual = np.sqrt(ZRDD.join(OldZ,numPartitions=args.N).values().map(lambda (v1,v2):(v1-v2)**2).reduce(add))
     #    OldZ.unpersist()
         if chckpnt:
            ZRDD.localCheckpoint()
         #OldZ.unpersist()
         now = time.time()
-        logger.info("Iteration %d row (Q/Xi) stats: %s, objective value is %f residual is %f, time is %f, iteration time is %f" % (i,RDDSolver_cls.logstats(),oldObjQ, oldPrimalResidualQ, now-tstart,now-tlast))
+        logger.info("Iteration %d  (Primal/Dual) stats: %s, objective value is %f residual is %f, dual residual is %f, time is %f, iteration time is %f" % (i,RDDSolver_cls.logstats(),oldObjQ, oldPrimalResidualQ,dualresidual, now-tstart,now-tlast))
 	tlast=now
        
     tend = time.time()

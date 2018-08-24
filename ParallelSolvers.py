@@ -99,7 +99,7 @@ class ParallelSolverPnorm(ParallelSolver):
         self.rho_inner = rho_inner
         self.p = p
         self.varsToPartitions = self.PrimalDualRDD.flatMapValues( lambda  (solver,P,Y,Phi,Upsilon, stats) : P.keys()).map(swap).partitionBy(self.N).cache()
-    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False):
+    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger=None):
         rho_inner = self.rho_inner
         p_param = self.p
         #Send z to the appropriate partitions
@@ -167,7 +167,8 @@ class ParallelSolverPnorm(ParallelSolver):
  
             objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
             now = time()
-            print "Iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last)
+            if logger != None:
+                logger.info("Inner ADMM iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last))
             last = time()
             if DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
                 break
@@ -201,7 +202,7 @@ class ParallelSolverPnorm(ParallelSolver):
            
                                                      
 class ParallelSolver1norm(ParallelSolverPnorm):
-    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False):
+    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger = None):
         rho_inner = self.rho_inner
         p_param = 1
         #Send z to the appropriate partitions
@@ -271,7 +272,8 @@ class ParallelSolver1norm(ParallelSolverPnorm):
 
             objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
             now = time()
-            print "Iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, iteration time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last)
+            if logger != None:
+                logger.info("Inner ADMM iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, iteration time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last))
             last = time()
             
 
@@ -289,7 +291,7 @@ class ParallelSolver1norm(ParallelSolverPnorm):
             return None
 
 class ParallelSolver2norm(ParallelSolverPnorm):
-    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False):
+    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger = None):
         rho_inner = self.rho_inner
         p_param = 2
         #Send z to the appropriate partitions
@@ -359,7 +361,8 @@ class ParallelSolver2norm(ParallelSolverPnorm):
 
             objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
             now = time()
-            print "Iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, iteration time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last)
+            if logger != None:
+                logger.info("Inner ADMM iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, iteration time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last))
             last = time()
 
             if DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:

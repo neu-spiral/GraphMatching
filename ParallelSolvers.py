@@ -20,12 +20,15 @@ class ParallelSolver():
        the last computation of the local solver. The class can be used as an interface to add "homogeneous" objectives in the consensus admm algorithm,
        that can be executed in parallel
     """
-    def __init__(self,LocalSolverClass,data,initvalue,N,rho,silent=True,lean=False, RDD=None):
+    def __init__(self,LocalSolverClass,data,initvalue,N,rho,silent=True,lean=False, RDD=None, D=None, lambda_linear=0.0):
         """Class constructor. It takes as an argument a local solver class, data (of a form understandable by the local solver class), an initial value for the primal variables, and a boolean value; the latter can be used to suppress the evaluation of the objective. 
         """
         self.SolverClass=LocalSolverClass
         if RDD==None:
-            self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho).cache()    #LocalSolver class should implement class method initializeLocalVariables
+            if D==None:
+                self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho).cache()    #LocalSolver class should implement class method initializeLocalVariables
+            else:
+                self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho,D,lambda_linear).cache()
         else:
             self.PrimalDualRDD = RDD
         self.N = N

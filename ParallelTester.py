@@ -89,7 +89,10 @@ if __name__=="__main__":
     for i in range(args.maxiters):
         chckpnt = (i!=0 and i % args.checkpoint_freq==0)
         OldZ=ZRDD
-        (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger)
+        if ParallelSolverClass == ParallelSolver: 
+            (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt)
+        else:
+            (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger)
 
         allvars = RDDSolver_cls.getVars(rho)
 

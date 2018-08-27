@@ -4,7 +4,7 @@
 
 
 
-from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex,readfile, writeMat2File
+from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex,readfile, writeMat2File,NoneToZero
 import numpy as np
 from numpy.linalg import solve as linearSystemSolver,inv
 import logging
@@ -14,7 +14,7 @@ from numpy.linalg import matrix_rank
 from pprint import pformat
 from time import time
 import argparse
-from pyspark import SparkContext
+from pyspark import SparkContext, StorageLevel
 
 
 def SijGenerator(graph1,graph2,G,N):
@@ -1008,7 +1008,7 @@ class LocalRowProjectionSolver(LocalSolver):
     @classmethod
 
 
-    def initializeLocalVariables(SolverClass,G,initvalue,N,rho):
+    def initializeLocalVariables(SolverClass,G,initvalue,N,rho,D=None,lambda_linear=1.0):
         """ Produce an RDD containing solver, primal-dual variables, and some statistics.  
         """
         def createLocalPrimalandDualRowVariables(splitIndex, iterator):
@@ -1029,13 +1029,41 @@ class LocalRowProjectionSolver(LocalSolver):
             stats['variables'] = len(Primal)
             stats['objectives'] = len(objectives)
             return [(splitIndex,(SolverClass(objectives,rho),Primal,Dual,stats))]
+        def createLocalPrimalandDualRowVariables_withD(splitIndex, iterator):
+            Primal = dict()
+            Dual = dict()
+            objectives = dict()
+            stats = dict()
+            D_local = dict()
 
-            
+            for (edge,D_edge) in iterator:
+                row,column = edge
+                Primal[edge] = initvalue
+                Dual[edge] = 0.0
+                D_local[edge] = D_edge
+                if row in objectives:
+                    objectives[row].append(column)
+                else:
+                    objectives[row] = [column]
+
+            stats['variables'] = len(Primal)
+            stats['objectives'] = len(objectives)
+            return [(splitIndex,(SolverClass(objectives,rho,D_local,lambda_linear),Primal,Dual,stats))]
+
         partitioned = G.partitionBy(N)
-        createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualRowVariables)
+        if D == None: 
+            createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualRowVariables)
+        else:
+            D = D.rightOuterJoin(partitioned.map(lambda pair: (pair, 1))).mapValues(lambda (val, dummy ): NoneToZero(val)).partitionBy(N)
+            createVariables = D.mapPartitionsWithIndex(createLocalPrimalandDualRowVariables_withD)
+
         PrimalDualRDD = createVariables.partitionBy(N,partitionFunc=identityHash).cache()
         return PrimalDualRDD
-
+    def __init__(self, objectives,rho=None,D_local=None,lambda_linear=1.0):
+        self.objectives = objectives
+        self.rho = rho
+        self.D_local = D_local
+        self.lambda_linear = lambda_linear
     def variables(self):
         """Return variables participating in local optimization"""
 	varbles = []
@@ -1063,6 +1091,8 @@ class LocalRowProjectionSolver(LocalSolver):
             zrow = {}
             for col in self.objectives[row]:
                 zrow[(row,col)] = zbar[(row,col)]
+                if self.D_local != None:
+                    zrow[(row,col)] -= 0.5 * self.D_local[(row,col)]*self.lambda_linear/rho
             xrow = projectToPositiveSimplex(zrow,1.0)
             stats['vars_lt_zero']  += sum( (val<0.0 for val in xrow.values()) )
             stats['vars_gt_one']  += sum( (val>1.0 for val in xrow.values()) )
@@ -1088,7 +1118,7 @@ class LocalColumnProjectionSolver(LocalSolver):
     @classmethod
 
 
-    def initializeLocalVariables(SolverClass,G,initvalue,N,rho):
+    def initializeLocalVariables(SolverClass,G,initvalue,N,rho,D=None,lambda_linear=0.0):
         """ Produce an RDD containing solver, primal-dual variables, and some statistics.  
         """
         def createLocalPrimalandDualColumnVariables(splitIndex, iterator):
@@ -1110,12 +1140,43 @@ class LocalColumnProjectionSolver(LocalSolver):
             stats['variables'] = len(Primal)
             stats['objectives'] = len(objectives)
             return [(splitIndex,(SolverClass(objectives,rho),Primal,Dual,stats))]
+        def createLocalPrimalandDualColumnVariables_withD(splitIndex, iterator):
+            Primal = dict()
+            Dual = dict()
+            objectives = dict()
+            stats = dict()
+            D_local = dict()
+
+            for (edgeInv, D_edge) in iterator:
+                column,row = edgeInv
+                edge = (row,column)
+                Primal[edge] = initvalue
+                Dual[edge] = 0.0
+                D_local[edge] = D_edge
+                if column in objectives:
+                    objectives[column].append(row)
+                else:
+                    objectives[column] = [row]
+
+            stats['variables'] = len(Primal)
+            stats['objectives'] = len(objectives)
+            return [(splitIndex,(SolverClass(objectives,rho,D_local,lambda_linear),Primal,Dual,stats))]
 
             
-        partitioned = G.map(swap).partitionBy(N)
-        createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualColumnVariables)
+        if D == None:
+            partitioned = G.map(swap).partitionBy(N)
+            createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualColumnVariables_withD)
+        else:
+            D = D.rightOuterJoin(G.map(lambda pair: (pair, 1))).mapValues(lambda (val, dummy ): NoneToZero(val))\
+                .map(lambda ((row, col), val): ((col, row), val)).partitionBy(N)
+            createVariables = D.mapPartitionsWithIndex(createLocalPrimalandDualRowVariables_withD)
         PrimalDualRDD = createVariables.partitionBy(N,partitionFunc=identityHash).cache()
         return PrimalDualRDD
+    def __init__(self, objectives,rho=None,D_local=None, lambda_linear=1.0):
+        self.objectives = objectives
+        self.rho = rho
+        self.D_local = D_local
+        self.lambda_linear = lambda_linear
 
     def variables(self):
         """Return variables participating in local optimization"""
@@ -1143,6 +1204,8 @@ class LocalColumnProjectionSolver(LocalSolver):
             zcol = {}
             for row in self.objectives[col]:
                 zcol[(row,col)] = zbar[(row,col)]
+                if self.D_local != None:
+                    zcol[(row,col)] -= 0.5 * self.lambda_linear * self.D_local[(row,col)]/rho
             xcol = projectToPositiveSimplex(zcol,1.0)
             stats['vars_lt_zero']  += sum( (val<0.0 for val in xcol.values()) )
             stats['vars_gt_one']  += sum( (val>1.0 for val in xcol.values()) )

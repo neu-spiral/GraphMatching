@@ -37,6 +37,11 @@ def NoneToZero(x):
         return 0.0
     else:
 	return x
+def NoneToEmpty(x):
+    if x is None:
+        return set()
+    else:
+        return x
 
 def safeWrite(rdd,outputfile,dvrdump=False):
     if os.path.isfile(outputfile):

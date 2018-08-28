@@ -19,9 +19,11 @@ if __name__=="__main__":
     parser.add_argument('--rho_inner',default=1.0,type=float, help='Rho paramter for Inner ADMM')
     parser.add_argument('--N',default=1,type=int, help='Level of parallelism')
     parser.add_argument('--alpha',default=1.0,type=float, help='Alpha value, used for dual variables')
+    parser.add_argument('--lambda_linear',default=1.0,type=float, help='Regularization parameter for linear term.')
     parser.add_argument('--maxiters',default=20, type=int, help='Max iterations to run the algorithm.')
     parser.add_argument('--p', default=1.5, type=float, help='p parameter in p-norm')
     parser.add_argument('--logfile',type=str,help='Log file to keep track of the stats.')
+    parser.add_argument('--distfile',type=str,help='File that stores distances the distance matrix D.', default=None)
     parser.add_argument('--checkpoint_freq',default=15,type=int,help='Number of iterations between check points')
     parser.add_argument('--checkpointdir',default='checkpointdir',type=str,help='Directory to be used for checkpointing')
     parser.add_argument('--bucket_name',default='armin-bucket',type=str,help='Bucket name, specify when running on google cloud. Outfile and logfile will be uploaded here.')
@@ -70,13 +72,18 @@ if __name__=="__main__":
  
     
     G = sc.textFile(args.G).map(eval)
+    if args.distfile is not None:
+        D =  sc.textFile(args.distfile).map(eval).partitionBy(N)
+    else:
+        D = None
+
   
   
     tstart = time.time()
     tlast = tstart
     #Initiate the ParallelSolver object
     if ParallelSolverClass == ParallelSolver:
-        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=N, rho=rho)
+        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=N, rho=rho, D=D, lambda_linear=args.lambda_linear)
     else:
         RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=N, rho=rho, p=p, rho_inner=rho_inner)
 

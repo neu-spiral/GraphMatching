@@ -3,7 +3,7 @@ import sys,argparse,logging,datetime
 from pyspark import SparkContext,StorageLevel,SparkConf
 from LocalSolvers import SijGenerator
 from operator import add
-from helpers import swap,safeWrite,clearFile
+from helpers import swap,safeWrite,clearFile, NoneToZero
 
 def readSnap(file,sc,minPartitions=10):
     '''Read a file in a format used by SNAP'''
@@ -24,7 +24,8 @@ def WL(graph,logger,depth = 10,numPartitions=10,storage_level=StorageLevel.MEMOR
 	oldcolors = colors
 	outsig = graphin.join(colors).values().groupByKey(numPartitions).mapValues(lambda x:tuple(sorted(list(x))))
 	insig = graphout.join(colors).values().groupByKey(numPartitions).mapValues(lambda x:tuple(sorted(list(x))))
-        colors = outsig.join(insig).mapValues(hash).persist(storage_level)
+      #  colors = outsig.join(insig).mapValues(hash).persist(storage_level)
+        colors = outsig.fullOuterJoin(insig).mapValues(lambda (c1, c2): (NoneToZero(c1), NoneToZero(c2))).mapValues(hash).persist(storage_level)
         oldcolors.unpersist()
 	numcolors = colors.values().distinct().count()
 	logger.info("IT = "+str(i)+"\t#colors = "+str(numcolors))
@@ -140,8 +141,8 @@ if __name__=="__main__":
 
     #repeat edges if graph is undirected
     if args.undirected:
-        graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)])
-	graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)])
+        graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
+	graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
 	
 
     #Generate/Read Constraints
@@ -160,6 +161,7 @@ if __name__=="__main__":
 	    color1 = WL(graph1,logger,depth=args.k,numPartitions=args.N) 
 	    color2 = WL(graph2,logger,depth=args.k,numPartitions=args.N) 
 	    G = matchColors(color1,color2, numPartitions=args.N).persist(storage_level) 	
+            print color2.take(1), color1.take(1)
         if args.outputconstraintfile:
             logger.info('Write  constraints')
             G.saveAsTextFile(args.outputconstraintfile)

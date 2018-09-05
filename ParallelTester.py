@@ -13,7 +13,7 @@ if __name__=="__main__":
     parser.add_argument('outfile', type=str, help='File to store running ansd time.')
     parser.add_argument('data',type=str,help ="File containing data, either constraints or objectives.")
     parser.add_argument('--G', type=str,help="File containing the variables.")
-    parser.add_argument('--ParallelSolver',default='ParallelSolver', help='Parallel Solver')
+    parser.add_argument('--ParallelSolver',default='ParallelSolver', choices=['ParallelSolver', 'ParallelSolver1norm', 'ParallelSolverPnorm', 'ParallelSolver2norm'],help='Parallel Solver')
     parser.add_argument('--solver',default='LocalL1Solver', help='Local Solver')
     parser.add_argument('--rho',default=1.0,type=float, help='Rho value, used for primal variables')
     parser.add_argument('--rho_inner',default=1.0,type=float, help='Rho paramter for Inner ADMM')

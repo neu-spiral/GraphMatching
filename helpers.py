@@ -1,12 +1,47 @@
 import datetime
 import os
 import shutil
+#from google.cloud import storage
 
+def readfile(fname):
+    f = open(fname, 'r')
+    m = 0 
+    n = 0
+    mat = []
+    for l in f:
+        l_row = []
+        row = l.split()
+        n = len(row)
+        for elem in row:
+            l_row.append( eval(elem)   )
+        mat.append(l_row)
+        m = m+1
+    return mat, m , n
+        
+            
+def writeMat2File(fname, A):
+    m,n = A.shape
+    fP = open(fname, 'w')
+    for i in range(m):
+        l = ""
+        for j in range(n):
+            if j<n-1:
+                fP.write(str(A[i,j])+'\t')
+            elif j==n-1:
+                fP.write(str(A[i,j])+'\n')          
+    fP.close()
+    
+        
 def NoneToZero(x):
     if x is None:
         return 0.0
     else:
 	return x
+def NoneToEmpty(x):
+    if x is None:
+        return set()
+    else:
+        return x
 
 def safeWrite(rdd,outputfile,dvrdump=False):
     if os.path.isfile(outputfile):
@@ -25,6 +60,15 @@ def safeWrite(rdd,outputfile,dvrdump=False):
 		    f.write("\n")  
     else:
        rdd.saveAsTextFile(outputfile)
+def delete_blob(bucket_name, blob_name):
+    """Deletes a blob from the bucket, used for GCP."""
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+
+    blob.delete()
+
+    print('Blob {} deleted.'.format(blob_name))
 
  
 def mergedicts(d1,d2,binop=lambda x,y:x+y):
@@ -86,3 +130,26 @@ def projectToPositiveSimplex(x,r):
     return y
 
 
+def softThresholding(x, k):
+    """Implementation of the soft thresholding operator defined as:
+            (1) if  x>k: S_k(x) = x - k
+            (2) if  |x|<=k: S_k(x) = 0
+            (3) if  x<-k: S_k(x) = x + k
+    """
+    if x>k:
+       out = x - k
+    elif abs(x)<=k:
+        out = 0.
+    elif x<-k:
+        out = x+k
+    return out
+def EuclidianPO(x, k, norm_X):
+    """ Proximal operator for Euclidian norm. It returns:
+            prox_k(x) = (1 - k/max(k, \|X\|_2))x
+    """
+    if norm_X<=k:
+        out = 0.0
+    else:
+        out = (1 - k/norm_X) * x
+    return out 
+        

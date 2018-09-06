@@ -27,8 +27,8 @@ class LocalSolver():
     @classmethod
     def initializeLocalVariables(SolverClass,Sij,initvalue,N,rho):
 
-        if logger.getEffectiveLevel()==logging.DEBUG:
-	     logger.debug(Sij_test(G,graph1,graph2,Sij))
+#        if logger.getEffectiveLevel()==logging.DEBUG:
+#	     logger.debug(Sij_test(G,graph1,graph2,Sij))
 
     	#Create local P and Phi variables
     	def createLocalPandPhiVariables(splitIndex, iterator):

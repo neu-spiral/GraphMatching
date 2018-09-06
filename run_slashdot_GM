@@ -4,7 +4,7 @@ export BUCKET=armin-bucket
 export GRAPH=slashdot
 export homeDIR=/home/armin_mrm93/
 export iter=1000
-export config="spark.executor.memory=100G,spark.driver.memory=20g,spark.rpc.message.maxSize=1024,spark.driver.maxResultSize=20G"         
+export config="spark.executor.memory=80G,spark.driver.memory=20g,spark.rpc.message.maxSize=1024,spark.driver.maxResultSize=20G,spark.rpc.askTimeout=600s,spark.executor.cores=32"         
 export continue=0
 export dump_freq=100
 for N in 64;

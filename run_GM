@@ -1,18 +1,17 @@
-
 #! /bin/bash
 export BUCKET=armin-bucket
 export GRAPH=$1
 export homeDIR=/home/armin_mrm93/
-export iter=6
+export iter=100
         
-export continue=1
+export continue=0
 export dump_freq=100
-for N in 64;
+for N in 2000;
 do
     if [ $continue -eq 1 ]
     then
         gcloud dataproc jobs submit pyspark GraphMatching.py --properties spark.executor.memory=100G,spark.driver.memory=20g,spark.rpc.message.maxSize=1024,spark.driver.maxResultSize=20G   --cluster=foo2  --py-files "helpers.py,LocalSolvers.py,debug.py" -- gs://$BUCKET/data/$GRAPH"/G"  $homeDIR$GRAPH"_"$N"_out" gs://$BUCKET/$GRAPH"_"$N"_out_"$iter"iterations"  --graph1 gs://$BUCKET/data/$GRAPH"/graph" --graph2  gs://$BUCKET/data/$GRAPH"/graph"  --maxiter $iter  --N $N  --checkpointdir gs://armin-bucket/Checkpointing/$GRAPH"_"$N"parts_"  --logfile /home/armin_mrm93/$GRAPH"_"$N".log"   --checkpoint_freq 1000 --dump_trace_freq 20    --init gs://$BUCKET/$GRAPH"_"$N"_out_"$iter"iterations"
     else
-        gcloud dataproc jobs submit pyspark GraphMatching.py  --cluster=foo --py-files "helpers.py,LocalSolvers.py,debug.py" -- gs://$BUCKET/data/$GRAPH"/G"  $homeDIR$GRAPH"_"$N"_out" gs://$BUCKET/$GRAPH"_"$N"_out_"$iter"iterations"  --graph1 gs://$BUCKET/data/$GRAPH"/graph" --graph2  gs://$BUCKET/data/$GRAPH"/graph"  --maxiter $iter  --N $N  --checkpointdir gs://armin-bucket/Checkpointing/$GRAPH"_"$N"parts_"  --logfile /home/armin_mrm93/$GRAPH"_"$N".log"   --checkpoint_freq 1000 --dump_trace_freq 10
+        gcloud dataproc jobs submit pyspark GraphMatching.py  --cluster=foo --properties spark.executor.memory=100G,spark.driver.memory=20g,spark.rpc.message.maxSize=1024,spark.driver.maxResultSize=20G --py-files "helpers.py,LocalSolvers.py,debug.py" -- gs://$BUCKET/data/$GRAPH"/G"  $homeDIR$GRAPH"_"$N"_out" gs://$BUCKET/$GRAPH"_"$N"_out_"$iter"iterations"  --graph1 gs://$BUCKET/data/$GRAPH"/graph" --graph2  gs://$BUCKET/data/$GRAPH"/graph"  --maxiter $iter  --N $N  --checkpointdir gs://armin-bucket/Checkpointing/$GRAPH"_"$N"parts_"  --logfile /home/armin_mrm93/$GRAPH"_"$N".log"   --checkpoint_freq 1000 --dump_trace_freq 100 --debug DEBUG
     fi
 done 

@@ -12,26 +12,9 @@ def grad_norm(x,p):
     for i in range(m):
         grad[i] = (x[i]/norm_p)***(p-1)
     return grad
-def grad_Fij(objectives)
-    m = len(objectives)
-    variable_set = set()
-
-
-    transl_vars2i = {}
-    transl_objs2i = {}
-    i = 0
-    for key in objectives:
-        (s1, s2) = objectives[key]
-        transl_objs2i[key] = i 
-        i += 1
-        variable_set.update(set(s1))
-        variable_set.update(set(s2))
-    n = len(variable_set)
-    i = 0
-    for var in variable_set:
-        if var not in transl_vars2i.keys():
-            transl_vars2i[var] = i
-            i += 1
+def grad_Fij(transl_vars2i,transl_objs2i)
+    m = len(transl_objs2i)
+    n = len(transl_vars2i)
     grad = matrix(0.0, (n,m)) 
     for key in objectives:
         col = transl_objs2i[key]
@@ -47,7 +30,59 @@ def grad_Fij(objectives)
             else:
                 grad[row, col] = 0.0
      return grad
-           
+def get_translators(objectives):
+    m = len(objectives)
+    variable_set = set()
+
+    transl_vars2i = {}
+    transl_objs2i = {}
+    i = 0
+    for key in objectives:
+        (s1, s2) = objectives[key]
+        transl_objs2i[key] = i
+        i += 1
+        variable_set.update(set(s1))
+        variable_set.update(set(s2))
+    i = 0
+    for var in variable_set:
+        transl_vars2i[var] = i
+        i += 1
+    transl_i2vars = dict( [(transl_vars2i[key],key) for key in transl_vars2i])
+    transl_i2objs = dict( [(transl_objs2i[key],key) for key in transl_objs2i])
+    return transl_vars2i, transl_objs2i, transl_i2vars, transl_i2objs
+        
+def get_row_col_objs(transl_vars2i):
+    rowObjs = {}
+    colObjs = {}
+    ii = 0
+    for var in transl_vars2i:
+        (i,j) = var:
+        if i not in rowObjs:
+            rowObjs[i] = [(i,j)]
+        else:
+            rowObjs[i].append((i,j))
+        if j not in colObjs: 
+            colObjs[j] = [(i,j)]
+        else:
+            colObjs[j].apppend((i,j))
+    return rowObjs, colObjs
+def build_constraints(transl_vars2i, rowObjs, colObjs):
+    n = len(transl_vars2i)
+    col_constraints = len(colObjs)
+    row_constraints  = len(rowObjs)
+    A = matrix(0.0, (row_constraints+col_constraints , n))
+    cnt = 0
+    for row in rowObjs:
+        for var in rowObjs[row]:
+            coord = transl_vars2i[var]
+            A[cnt, coord] = 1.
+         cnt += 1
+    for col in colObjs:
+        for var in colObjs[col]:
+            coord = transl_vars2i[var]
+            A[cnt, coord] = 1.
+        cnt += 1
+    return A
     
     
 if __name__=="__main__":

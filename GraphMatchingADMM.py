@@ -2,8 +2,8 @@ import numpy as np
 import sys,argparse,logging,datetime,pickle,time
 from pyspark import SparkContext,StorageLevel,SparkConf
 from operator import add,and_
-from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver
-from ParallelSolvers import ParallelSolver
+from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver,LocalLSSolver
+from ParallelSolvers import ParallelSolver, ParallelSolver1norm, ParallelSolverPnorm, ParallelSolver2norm
 from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero
 from helpers_GCP import safeWrite_GCP,upload_blob
 from debug import logger,dumpPPhiRDD,dumpBasic
@@ -53,22 +53,29 @@ if __name__=="__main__":
     parser.add_argument('--objectivefile',default=None,help="File containing pre-computed objectives. Graphs  need not be given if this argument is set.")
     parser.add_argument('--linear_term',default=None,help="Linear term to be added in the objective")
     parser.add_argument('--problemsize',default=1000,type=int, help='Problem size. Used to initialize uniform allocation, needed when objectivefile is passed')
-    parser.add_argument('--solver',default='LocalL1Solver', help='Local Solver',choices=['LocalL1Solver','LocalL2Solver','FastLocalL2Solver'])
+    parser.add_argument('--parallelSolver',default='ParallelSolver', choices=['ParallelSolver', 'ParallelSolver1norm', 'ParallelSolverPnorm', 'ParallelSolver2norm'],help='Parallel Solver')
+    parser.add_argument('--solver',default='LocalLSSolver', help='Local Solver',choices=['LocalL1Solver','LocalL2Solver','FastLocalL2Solver','LocalColumnProjectionSolver','LocalRowProjectionSolver','LocalLSSolver'])
     parser.add_argument('--debug',default='INFO', help='Verbosity level',choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument('--logLevel',default='INFO', help='Verbosity level',choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument('--logfile',default='graphmatching.log',help='Log file')
     parser.add_argument('--maxiter',default=5,type=int, help='Maximum number of iterations')
     parser.add_argument('--N',default=8,type=int, help='Number of partitions')
+    parser.add_argument('--Nrowcol',default=1,type=int, help='Level of parallelism for Row/Col RDDs')
+    parser.add_argument('--p', default=1.5, type=float, help='p parameter in p-norm')
+    parser.add_argument('--distfile',type=str,help='File that stores distances the distance matrix D.', default=None)
+    
     parser.add_argument('--rhoP',default=1.0,type=float, help='Rho value, used for primal variables P')
     parser.add_argument('--rhoQ',default=1.0,type=float, help='Rho value, used for primal variables Q')
     parser.add_argument('--rhoT',default=1.0,type=float, help='Rho value, used for primal variables T')
+    parser.add_argument('--rho_inner',default=1.0,type=float, help='Rho paramter for Inner ADMM')
     parser.add_argument('--alpha',default=0.05,type=float, help='Alpha value, used for dual variables')
+    parser.add_argument('--lambda_linear',default=1.0,type=float, help='Regularization parameter for linear term.')
     parser.add_argument('--dump_trace_freq',default=10,type=int,help='Number of iterations between trace dumps')
     parser.add_argument('--checkpoint_freq',default=10,type=int,help='Number of iterations between check points')
     parser.add_argument('--checkpointdir',default='checkpointdir',type=str,help='Directory to be used for checkpointing')
     parser.add_argument('--initRDD',default=None, type=str, help='File name, where the RDDs are dumped.')
     parser.add_argument('--GCP',action='store_true', help='Pass if running on  Google Cloud Platform')
-    parser.add_argument('--bucketname',type=str,default=None,help='Bucket name for storing RDDs omn Google Cloud Platform, pass if running pn the platform')
+    parser.add_argument('--bucketname',type=str,default='armin-bucket',help='Bucket name for storing RDDs omn Google Cloud Platform, pass if running pn the platform')
 
     parser.add_argument('--dumpRDDs', dest='dumpRDDs', action='store_true',help='Dump auxiliary RDDs beyond Z')
     parser.add_argument('--no-dumpRDDs', dest='dumpRDDs', action='store_false',help='Do not dump auxiliary RDDs beyond Z')
@@ -93,6 +100,7 @@ if __name__=="__main__":
     args = parser.parse_args()
 
     SolverClass = eval(args.solver)	
+    ParallelSolverClass = eval(args.parallelSolver)
 
     configuration = SparkConf()
     configuration.set('spark.default.parallelism',args.N)
@@ -122,6 +130,11 @@ if __name__=="__main__":
     has_linear = args.linear_term is not None
     if not has_linear:
         oldLinObjective = 0.
+
+    if args.distfile is not None:
+        D =  sc.textFile(args.distfile).map(eval).partitionBy(N)
+    else:
+        D = None
     
     #Read constraint graph
     G = sc.textFile(args.constraintfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
@@ -177,13 +190,16 @@ if __name__=="__main__":
     else:
 
        #Create primal and dual variables and associated solvers
-        PPhi=ParallelSolver(SolverClass,objectives,uniformweight,args.N,args.rhoP,args.alpha,lean=args.lean)
+        if ParallelSolverClass == ParallelSolver:
+             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, D=D, lambda_linear=args.lambda_linear,lean=args.lean)
+        else:
+             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.lean)
         logger.info('Partitioned data (P/Phi) RDD stats: '+PPhi.logstats() )    
       
-        QXi = ParallelSolver(LocalRowProjectionSolver,G,uniformweight,args.N,args.rhoQ,args.alpha,lean=args.lean)
+        QXi = ParallelSolver(LocalRowProjectionSolver,G,uniformweight,args.Nrowcol,args.rhoQ,args.alpha,lean=args.lean)
         logger.info('Row RDD (Q/Xi) RDD stats: '+QXi.logstats() )
 
-        TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.N,args.rhoT,args.alpha,lean=args.lean)
+        TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.Nrowcol,args.rhoT,args.alpha,lean=args.lean)
         logger.info('Column RDD (T/Psi) RDD stats: '+TPsi.logstats() )
 
 
@@ -205,7 +221,10 @@ if __name__=="__main__":
         logger.info("Iteration %d row (Q/Xi) stats: %s" % (iteration,QXi.logstats())) 
         (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt)
         logger.info("Iteration %d column (T/Psi) stats: %s" % (iteration,TPsi.logstats())) 
-        (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt)
+        if ParallelSolverClass == ParallelSolver:
+            (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt)
+        else:
+            (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger)
         logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
 
       
@@ -312,8 +331,8 @@ if __name__=="__main__":
         safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
     else:
     #If running on GCP, upload the log and the trace to the bucket. Also, save RDDs on the bucket. 
-        outfile_name = args.outputfile.split('/')[-1]
-        logfile_name = args.logfile.split('/')[-1]
+        outfile_name = 'profiling/GM/' + args.outputfile.split('/')[-1]
+        logfile_name = 'profiling/GM/' + args.logfile.split('/')[-1]
 
         upload_blob(args.bucketname, args.outputfile+"_trace", outfile_name)
         upload_blob(args.bucketname, args.logfile, logfile_name)

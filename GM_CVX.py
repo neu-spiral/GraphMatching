@@ -4,6 +4,7 @@ from cvxopt import matrix, spmatrix, solvers
 from pyspark import SparkContext
 from numpy import sign
 from time import time
+from numpy.linalg import matrix_rank
 def norm(x,p):
     return ( sum( abs(x)**p)) **(1./p)
 def grad_norm(x,p):
@@ -158,8 +159,9 @@ if __name__=="__main__":
         return (f, Df, H) 
    #build simplex constraints
     rowObjs, colObjs = get_row_col_objs(transl_vars2i)
-
+    print rowObjs, colObjs
     A,b = build_constraints(transl_vars2i, rowObjs, colObjs)
+    print matrix_rank(A), A.size
    #build positivity constratints
     G = spmatrix(-1.0, range(n), range(n)) 
     h = matrix(0., (n,1))
@@ -168,7 +170,7 @@ if __name__=="__main__":
     dims['q'] = []
     dims['s'] = []   
     tstaart = time()
-    pOpt = solvers.cp(F=F, G=G, h=h, A=A, b=b,  dims=dims)['x']
+    pOpt = solvers.cp(F=F, G=G, h=h, dims=dims)['x']
     tend = time()
     optimal_sol  = norm(eval_Fij(objectives, transl_vars2i,transl_objs2i, pOpt), args.p)
     fP = open(args.outfile, 'w')

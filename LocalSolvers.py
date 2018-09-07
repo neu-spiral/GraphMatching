@@ -1165,7 +1165,7 @@ class LocalColumnProjectionSolver(LocalSolver):
             
         if D == None:
             partitioned = G.map(swap).partitionBy(N)
-            createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualColumnVariables_withD)
+            createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualColumnVariables)
         else:
             D = D.rightOuterJoin(G.map(lambda pair: (pair, 1))).mapValues(lambda (val, dummy ): NoneToZero(val))\
                 .map(lambda ((row, col), val): ((col, row), val)).partitionBy(N)

@@ -1,6 +1,6 @@
 import time
 import argparse,logging
-from LocalSolvers import LocalL1Solver, LocalRowProjectionSolver, LocalL1Solver_Old, LocalLSSolver
+from LocalSolvers import LocalL1Solver, LocalRowProjectionSolver, LocalL1Solver_Old, LocalLSSolver, LocalColumnProjectionSolver
 from ParallelSolvers import ParallelSolver, ParallelSolverPnorm, ParallelSolver1norm, ParallelSolver2norm
 from pyspark import SparkContext, StorageLevel
 from debug import logger
@@ -8,6 +8,7 @@ from helpers import clearFile
 import helpers_GCP
 import numpy as np
 from operator import add,and_
+from GraphMatchingADMM import testSimplexCondition
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Parallel Graph Matching Test.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('outfile', type=str, help='File to store running ansd time.')
@@ -18,6 +19,7 @@ if __name__=="__main__":
     parser.add_argument('--rho',default=1.0,type=float, help='Rho value, used for primal variables')
     parser.add_argument('--rho_inner',default=1.0,type=float, help='Rho paramter for Inner ADMM')
     parser.add_argument('--N',default=1,type=int, help='Level of parallelism')
+    parser.add_argument('--Nrowcol',default=1,type=int, help='Level of parallelism for Row/Col RDDs')
     parser.add_argument('--alpha',default=1.0,type=float, help='Alpha value, used for dual variables')
     parser.add_argument('--lambda_linear',default=1.0,type=float, help='Regularization parameter for linear term.')
     parser.add_argument('--maxiters',default=20, type=int, help='Max iterations to run the algorithm.')
@@ -83,7 +85,7 @@ if __name__=="__main__":
     tlast = tstart
     #Initiate the ParallelSolver object
     if ParallelSolverClass == ParallelSolver:
-        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=N, rho=rho, D=D, lambda_linear=args.lambda_linear)
+        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=args.Nrowcol, rho=rho, D=D, lambda_linear=args.lambda_linear)
     else:
         RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=N, rho=rho, p=p, rho_inner=rho_inner)
 
@@ -93,6 +95,7 @@ if __name__=="__main__":
 
     logger.info("Iinitial row (Primal/Dual) stats: %s" %RDDSolver_cls.logstats())
 
+    print testSimplexCondition(ZRDD, 'row')
     for i in range(args.maxiters):
         chckpnt = (i!=0 and i % args.checkpoint_freq==0)
         OldZ=ZRDD
@@ -112,6 +115,7 @@ if __name__=="__main__":
         #OldZ.unpersist()
         now = time.time()
         logger.info("Iteration %d  (Primal/Dual) stats: %s, objective value is %f residual is %f, dual residual is %f, time is %f, iteration time is %f" % (i,RDDSolver_cls.logstats(),oldObjQ, oldPrimalResidualQ,dualresidual, now-tstart,now-tlast))
+        print testSimplexCondition(ZRDD, 'row')
 	tlast=now
        
     tend = time.time()

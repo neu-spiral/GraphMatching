@@ -88,7 +88,7 @@ class ParallelSolver():
 
 class ParallelSolverPnorm(ParallelSolver):
     """This class is inheritted from ParallelSolver, it updates P and Y vriables for a general p-norm solver via inner ADMM."""
-    def __init__(self,LocalSolverClass,data,initvalue,N,rho,rho_inner, p, silent=True,lean=False, RDD=None):
+    def __init__(self,LocalSolverClass,data,initvalue,N,rho,rho_inner, p, silent=False,lean=False, RDD=None):
         """Class constructor. It takes as an argument a local solver class, data (of a form understandable by the local solver class), an initial value for the primal variables, and a boolean value; the latter can be used to suppress the evaluation of the objective. 
         """
         self.SolverClass=LocalSolverClass
@@ -123,7 +123,7 @@ class ParallelSolverPnorm(ParallelSolver):
 
         ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
         PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
-        if not self.lean:
+        if not self.silent:
             oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
             oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z, p_param)).reduce(add))**(1./p_param)  #local solver should compute p-norm to the power p. 
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
@@ -134,7 +134,7 @@ class ParallelSolverPnorm(ParallelSolver):
         for i in range(maxiters):
             #Compute vectors Fm(Pm)
             FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),P,Y,Phi,Upsilon,stats,Zbar))
-            if not self.lean:
+            if not self.lean or (self.lean and i==maxiters-1):
                #Compute the residual 
                 OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,OldP,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
 
@@ -149,7 +149,7 @@ class ParallelSolverPnorm(ParallelSolver):
             NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
 
 
-            if not self.lean:
+            if not self.lean or (self.lean and i==maxiters-1):
                #Compute the dual residual for Y
                 DualInnerResidual_Y = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
 
@@ -160,7 +160,7 @@ class ParallelSolverPnorm(ParallelSolver):
             ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver, OldP, Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner),OldP, Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats),OldP, Y, Phi, Upsilon, stats_old, Zbar): (solver,P,OldP,Y,Phi,Upsilon, stats, Zbar))
 
 
-            if not self.lean:
+            if not self.lean or (self.lean and i==maxiters-1):
                 #Compute the dual residual for P
                 DualInnerResidual_P = np.sqrt( ZbarPrimalDual.values().flatMap(lambda (solver,P,OldP,Y,Phi,Upsilon, stats, Zbar):  [ (P[key] -OldP[key])**2 for key in P]).reduce(add) )
                 #Total dual residual 
@@ -170,10 +170,10 @@ class ParallelSolverPnorm(ParallelSolver):
  
             objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
             now = time()
-            if logger != None:
+            if logger != None and ( not self.lean or (self.lean and i==maxiters-1) ):
                 logger.info("Inner ADMM iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last))
             last = time()
-            if DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
+            if not self.lean and DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
                 break
         self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache() 
 
@@ -181,7 +181,7 @@ class ParallelSolverPnorm(ParallelSolver):
         if checkpoint:
             self.PrimalDualRDD.localCheckpoint()
 
-        if not self.lean:
+        if not self.silent:
             return (oldPrimalResidual,oldObjValue)
         else:
             return None
@@ -226,18 +226,25 @@ class ParallelSolver1norm(ParallelSolverPnorm):
 
         ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
         PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
-        if not self.lean:
+        if not self.silent:
             oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
             oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z, p_param)).reduce(add))**(1./p_param)  #local solver should compute p-norm to the power p. 
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
         ZbarPrimalDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Z): ( solver,P,Y,Phi,Upsilon,stats,dict( [(key, Z[key]-Phi[key]) for key in Z])))
+
+
+        #Initialization for Inner ADMM
+        #initialize Upsilon to 0
+        ZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, P, Y, Phi, dict([(key,0.0) for key in Upsilon]), stats, Zbar))
+        #initialize P by solving         
+      #  ZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, solver.solve(Y, Zbar, Upsilon, rho, rho_inner), Y, Phi,Upsilon,stats,Zbar)).mapValues(lambda (solver, (P, stats0), Y, Phi,Upsilon,stats,Zbar): (solver,P,Y,Phi,Upsilon,stats,Zbar))
 
         last = time()
         #Start the inner ADMM iterations
         for i in range(maxiters):
             #Compute vectors Fm(Pm)
             FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),P,Y,Phi,Upsilon,stats,Zbar))
-            if not self.lean:
+            if not self.lean  or (self.lean and i==maxiters-1):
                #Compute the residual 
                 OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,OldP,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
 
@@ -252,7 +259,7 @@ class ParallelSolver1norm(ParallelSolverPnorm):
             NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
 
 
-            if not self.lean:
+            if not self.lean  or (self.lean and i==maxiters-1):
                #Compute the dual residual for Y
                 DualInnerResidual_Y = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
 
@@ -264,7 +271,7 @@ class ParallelSolver1norm(ParallelSolverPnorm):
 
 
 
-            if not self.lean:
+            if not self.lean  or (self.lean and i==maxiters-1):
                 #Compute the dual residual for P
                 DualInnerResidual_P = np.sqrt( ZbarPrimalDual.values().flatMap(lambda (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar):  [ (P[key] -OldP[key])**2 for key in P]).reduce(add) )
                 #Total dual residual 
@@ -272,15 +279,15 @@ class ParallelSolver1norm(ParallelSolverPnorm):
 
             ZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
 
-
-            objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
+            if not self.lean  or (self.lean and i==maxiters-1):
+                objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
             now = time()
-            if logger != None:
+            if logger != None and (not self.lean  or (self.lean and i==maxiters-1)):
                 logger.info("Inner ADMM iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, iteration time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last))
             last = time()
             
 
-            if DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
+            if not self.lean and DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
                 break
         self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache()
 
@@ -288,7 +295,7 @@ class ParallelSolver1norm(ParallelSolverPnorm):
         if checkpoint:
             self.PrimalDualRDD.localCheckpoint()
 
-        if not self.lean:
+        if not self.silent:
             return (oldPrimalResidual,oldObjValue)
         else:
             return None
@@ -315,7 +322,7 @@ class ParallelSolver2norm(ParallelSolverPnorm):
 
         ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
         PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
-        if not self.lean:
+        if not self.silent:
             oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
             oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z, p_param)).reduce(add))**(1./p_param)  #local solver should compute p-norm to the power p. 
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
@@ -327,7 +334,7 @@ class ParallelSolver2norm(ParallelSolverPnorm):
         for i in range(maxiters):
             #Compute vectors Fm(Pm)
             FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),P,Y,Phi,Upsilon,stats,Zbar))
-            if not self.lean:
+            if not self.lean or (self.lean and i==maxiters-1):
                #Compute the residual 
                 OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,OldP,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
 
@@ -342,7 +349,7 @@ class ParallelSolver2norm(ParallelSolverPnorm):
             NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
         
 
-            if not self.lean:
+            if not self.lean or (self.lean and i==maxiters-1):
                #Compute the dual residual for Y
                 DualInnerResidual_Y = np.sqrt( NewYUpsilonPhi.values().flatMap(lambda (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar): [ (Y[key] -OldY[key])**2 for key in Y]).reduce(add) )
 
@@ -353,7 +360,7 @@ class ParallelSolver2norm(ParallelSolverPnorm):
             ZbarPrimalDual = NewYUpsilonPhi.mapValues(lambda (solver, OldP, Y, Phi,Upsilon,stats,Zbar): (solver,solver.solve(Y, Zbar, Upsilon, rho, rho_inner),OldP, Y, Phi, Upsilon, stats, Zbar)).mapValues(lambda (solver, (P, stats), OldP, Y, Phi, Upsilon, stats_old, Zbar): (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar))
 
 
-            if not self.lean:
+            if not self.lean or (self.lean and i==maxiters-1):
                 #Compute the dual residual for P
                 DualInnerResidual_P = np.sqrt( ZbarPrimalDual.values().flatMap(lambda (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar):  [ (P[key] -OldP[key])**2 for key in P]).reduce(add) )
                 #Total dual residual 
@@ -361,14 +368,14 @@ class ParallelSolver2norm(ParallelSolverPnorm):
 
             ZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,OldP,P,Y,Phi,Upsilon, stats, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
 
-
-            objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
+            if not self.lean or (self.lean and i==maxiters-1):
+                objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
             now = time()
-            if logger != None:
+            if logger != None and (not self.lean  or (self.lean and i==maxiters-1)):
                 logger.info("Inner ADMM iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, iteration time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last))
             last = time()
 
-            if DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
+            if  not self.lean and DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
                 break
         self.PrimalDualRDD = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Zbar): (solver,P,Y,Phi,Upsilon,stats)).cache()
 

@@ -5,7 +5,7 @@ from operator import add,and_
 from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver,LocalLSSolver
 from ParallelSolvers import ParallelSolver, ParallelSolver1norm, ParallelSolverPnorm, ParallelSolver2norm
 from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero
-from helpers_GCP import safeWrite_GCP,upload_blob
+from helpers_GCP import safeWrite_GCP,upload_blob, download_blob
 from debug import logger,dumpPPhiRDD,dumpBasic
 from pprint import pformat
 import os
@@ -88,6 +88,8 @@ if __name__=="__main__":
     parser.set_defaults(lean=False)
     parser.add_argument('--lean',dest="lean",action='store_true',help='Run in efficient, ``lean'' mode, with final Z as sole output. Skips  computation of objective value and residuals duning exection and supresses both monitoring progress logging and trace dumping. It is the same as --silent, though it still prints some basic output messages, and does not effect verbosity level.')
 
+    parser.add_argument('--leanInner',dest="leanInner",action='store_true',help='Run in efficient, ``lean'' mode, with final P after a fixed number of Inner ADMM iterations. Skips  computation of objective value and residuals duning exection and supresses both monitoring progress in Inrre ADMM steps.')
+    parser.set_defaults(leanInner=False)
    
 
     parser.set_defaults(directed=False)
@@ -173,10 +175,23 @@ if __name__=="__main__":
 
     if args.initRDD != None:
 
+
+        if args.GCP:
+            #Download the previous trace file from the bucket
+            outfile_name = 'profiling/GM/' + args.outputfile.split('/')[-1] 
+            download_blob(args.bucketname, outfile_name,args.outputfile )
+        #Load the previous trace file
+        fTrace = open(args.outputfile, 'r')
+        (prevArgs, trace) = pickle.load(fTrace)
+        numb_of_prev_iters = len(trace)
+
        #Resume iterations from prevsiously dumped iterations. 
         ZRDD = sc.textFile(args.initRDD+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
         PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
-        PPhi = ParallelSolver(SolverClass,objectives,uniformweight,args.N,args.rhoP,args.alpha,lean=args.lean, RDD=PPhi_RDD)
+        if ParallelSolverClass == ParallelSolver:
+            PPhi = ParallelSolver(SolverClass,objectives,uniformweight,args.N,args.rhoP,args.alpha,lean=args.lean, RDD=PPhi_RDD)
+        else:
+            PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.leanInner, RDD=PPhi_RDD)
         logger.info('From the last iteration solver (P/Phi) RDD stats: '+PPhi.logstats() )
 
         QXi_RDD = sc.textFile(args.initRDD+"_QXiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalRowProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
@@ -185,6 +200,8 @@ if __name__=="__main__":
 
         TPsi_RDD = sc.textFile(args.initRDD+"_TPsiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalColumnProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
         TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.N,args.rhoT,args.alpha,lean=args.lean, RDD=TPsi_RDD)
+
+       
         logger.info('From the last iteration column (T/Psi) RDD stats: '+TPsi.logstats() )
 
     else:
@@ -193,7 +210,7 @@ if __name__=="__main__":
         if ParallelSolverClass == ParallelSolver:
              PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, D=D, lambda_linear=args.lambda_linear,lean=args.lean)
         else:
-             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.lean)
+             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.leanInner)
         logger.info('Partitioned data (P/Phi) RDD stats: '+PPhi.logstats() )    
       
         QXi = ParallelSolver(LocalRowProjectionSolver,G,uniformweight,args.Nrowcol,args.rhoQ,args.alpha,lean=args.lean)
@@ -205,7 +222,10 @@ if __name__=="__main__":
 
         #Create consensus variable, initialized to uniform assignment ignoring constraints
         ZRDD = G.map(lambda (i,j):((i,j),uniformweight)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-
+        
+        #Initialize trace to an empty dict
+        trace = {}
+        numb_of_prev_iters = 0
     	
     end_timing = time.time()
     logger.info("Data input and preprocessing done in %f seconds, starting main ADMM iterations " % ( end_timing -start_timing))
@@ -213,7 +233,6 @@ if __name__=="__main__":
     start_timing = time.time()	
     last_time = start_timing
     dump_time = 0.
-    trace = {}
     for iteration in range(args.maxiter):
         chckpnt = (iteration!=0 and iteration % args.checkpoint_freq==0)
 
@@ -224,7 +243,7 @@ if __name__=="__main__":
         if ParallelSolverClass == ParallelSolver:
             (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt)
         else:
-            (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger)
+            (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=40)
         logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
 
       
@@ -281,7 +300,7 @@ if __name__=="__main__":
            Zstats['IT_TIME'] = now-last_time-dump_time
 	   last_time = now
            logger.info("Iteration %d  time is %f sec, average time per iteration is %f sec, total time is %f " % (iteration,Zstats['IT_TIME'],Zstats['TIME']/(iteration+1.0),Zstats['TIME'])) 
-	   trace[iteration] = Zstats
+	   trace[iteration + numb_of_prev_iters] = Zstats
 	
         #if not (args.silent or args.lean):
         dump_time = 0.
@@ -300,8 +319,8 @@ if __name__=="__main__":
 		        safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
                     else:
                         #If running on GCP, upload the log and the trace to the bucket. Also, save RDDs on the bucket. 
-                        outfile_name = args.outputfile.split('/')[-1]
-                        logfile_name = args.logfile.split('/')[-1]
+                        outfile_name = 'profiling/GM/' + args.outputfile.split('/')[-1]
+                        logfile_name = 'profiling/GM/' + args.logfile.split('/')[-1]
 
                         upload_blob(args.bucketname, args.outputfile+"_trace", outfile_name)
                         upload_blob(args.bucketname, args.logfile, logfile_name)

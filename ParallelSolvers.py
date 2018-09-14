@@ -104,7 +104,12 @@ class ParallelSolverPnorm(ParallelSolver):
         self.varsToPartitions = self.PrimalDualRDD.flatMapValues( lambda  (solver,P,Y,Phi,Upsilon, stats) : P.keys()).map(swap).partitionBy(self.N).cache()
     def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger=None):
         rho_inner = self.rho_inner
+        Dual = False
         p_param = self.p
+        if p_param > 2.:
+             #In this case find prox. op. for dual norm and use Moreau decomposition  
+             Dual = True
+             q_param = p_param/(p_param-1.)
         #Send z to the appropriate partitions
         def Fm(objs,P):
             """
@@ -144,8 +149,15 @@ class ParallelSolverPnorm(ParallelSolver):
             FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
  
 
-            #Update Y via prox. op. for p-norm
-            NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-6 )
+            if not Dual:
+                #Update Y via prox. op. for p-norm
+                NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-6,  self.lean and i<maxiters-1 )
+            else:
+                #Find prox-op for dual norm (q-norm)
+                NothersRDD = FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  )).mapValues(lambda (N_p, (solver, OldP, Y, Phi, Upsilon,stats,Zbar)):(N_p, (solver, OldP, Y, Phi, Upsilon,stats,Zbar,N_p)))
+                NewYUpsilonPhi, Ynorm = pnormOp(NothersRDD, q_param, rho_inner, 1.e-6,  self.lean and i<maxiters-1 )
+                #Update Y via finding the prox. op. for p-norm usuing Moreau decomposition  
+                NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar, N_p)):(dict( [(key, N_p[key]-Y[key]) for key in Y]), (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)))
             NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
 
 
@@ -167,8 +179,8 @@ class ParallelSolverPnorm(ParallelSolver):
                 DualInnerResidual = DualInnerResidual_P + DualInnerResidual_Y
 
             ZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,OldP,Y,Phi,Upsilon, stats, Zbar): (solver,P,Y,Phi,Upsilon, stats, Zbar))
- 
-            objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
+            if not self.lean  or (self.lean and i==maxiters-1): 
+                objval = ZbarPrimalDual.values().flatMap(lambda (solver,P,Y,Phi,Upsilon, stats, Zbar):[(P[key]-Zbar[key])**2 for key in P]).reduce(lambda x,y:x+y) + Ynorm
             now = time()
             if logger != None and ( not self.lean or (self.lean and i==maxiters-1) ):
                 logger.info("Inner ADMM iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last))
@@ -255,7 +267,7 @@ class ParallelSolver1norm(ParallelSolverPnorm):
 
 
             #Update Y via prox. op. for ell_1 norm
-            NewYUpsilonPhi, Ynorm = L1normOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm,OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP,Y, Phi, Upsilon,stats,Zbar)  ) ), rho_inner )
+            NewYUpsilonPhi, Ynorm = L1normOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm,OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP,Y, Phi, Upsilon,stats,Zbar)  ) ), rho_inner , self.lean and i<maxiters-1)
             NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
 
 
@@ -345,7 +357,7 @@ class ParallelSolver2norm(ParallelSolverPnorm):
 
 
             #Update Y via prox. op. for ell_2 norm
-            NewYUpsilonPhi, Ynorm = EuclidiannormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm,OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ),  rho_inner )
+            NewYUpsilonPhi, Ynorm = EuclidiannormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm,OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ),  rho_inner,  self.lean and i<maxiters-1)
             NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
         
 
@@ -383,7 +395,7 @@ class ParallelSolver2norm(ParallelSolverPnorm):
         if checkpoint:
             self.PrimalDualRDD.localCheckpoint()
 
-        if not self.lean:
+        if not self.silent:
             return (oldPrimalResidual,oldObjValue)
         else:
             return None

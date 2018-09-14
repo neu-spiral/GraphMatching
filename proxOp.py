@@ -45,7 +45,7 @@ def normp(RDD, p):
     """Compute p-norm of a vector stored as an RDD with its sign."""
     norm_to_P =  RDD.values().map(lambda (x, x_sign):abs(x)**p).reduce(lambda x,y:x+y)
     return norm_to_P**(1./p)
-def pnormOp(NothersRDD,p, rho, epsilon):
+def pnormOp(NothersRDD,p, rho, epsilon, lean=False):
     """Prox. operator for p-norm, i.e., solve the following problem:
            min_Y \|Y\|_p + rho/2*\|Y-N\|_2^2,
         where N values are given in NothersRDD, s.t., each partition i contains (N_i, Others_i) and N_i is a dictionary.
@@ -61,7 +61,6 @@ def pnormOp(NothersRDD,p, rho, epsilon):
     q = p/(p-1.)
     N_qnorm = pnorm(NothersRDD, q)
     if N_qnorm<=1.:
-        print N_qnorm
         YothersRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, 0.0 ) for key in Nm]) ,Others) ).cache()
         Ypnorm = 0.0
     else:
@@ -92,22 +91,28 @@ def pnormOp(NothersRDD,p, rho, epsilon):
 ###################################
         #Denormalize the solution 
         YothersRDD = TempRDD.mapValues(lambda (Nm, Others):(dict([(key, Nm[key][1]*Nm[key][0]/rho) for key in Nm]), Others)).cache()
-        #Compute the p-norm for the final solution
-        Ypnorm =  YothersRDD.values().flatMap(lambda (Y, Others): [abs(Y[key])**p for key in Y]).reduce(lambda x,y:x+y)
-        Ypnorm = Ypnorm**(1./p)
+        if not lean:
+            #Compute the p-norm for the final solution
+            Ypnorm =  YothersRDD.values().flatMap(lambda (Y, Others): [abs(Y[key])**p for key in Y]).reduce(lambda x,y:x+y)
+            Ypnorm = Ypnorm**(1./p)
+        else:
+            Ypnorm = None 
     return (YothersRDD, Ypnorm) 
 
 
-def L1normOp(NothersRDD, rho):
+def L1normOp(NothersRDD, rho, lean=False):
     """Prox. operator for p-norm, i.e., solve the following problem:
            min_Y \|Y\|_1 + rho/2*\|Y-N\|_2^2,
         where N values are given in NothersRDD, s.t., each partition i contains (N_i, Others_i) and N_i is a dictionary. The solution is simly given by appllying soft threasholding 
     """
     YothersRDD =  NothersRDD.mapValues(lambda (Nm, Others): (dict( [(key, softThresholding(Nm[key], 1./rho)) for key in Nm] ), Others) ).cache()
-    Y1norm = YothersRDD.values().flatMap(lambda (Y, Others):[abs(Y[key]) for key in Y]).reduce(lambda x,y:x+y)
+    if not lean:
+        Y1norm = YothersRDD.values().flatMap(lambda (Y, Others):[abs(Y[key]) for key in Y]).reduce(lambda x,y:x+y)
+    else:
+        Y1norm = None
     return (YothersRDD, Y1norm)
 
-def EuclidiannormOp(NothersRDD, rho):
+def EuclidiannormOp(NothersRDD, rho, lean=False):
     """Prox. operator for p-norm, i.e., solve the following problem:
            min_Y \|Y\|_2 + rho/2*\|Y-N\|_2^2,
         where N values are given in NothersRDD, s.t., each partition i contains (N_i, Others_i) and N_i is a dictionary. The solution is simly given by appllying Euclidian norm proximal operator, which has a closed-form solution. 
@@ -117,7 +122,10 @@ def EuclidiannormOp(NothersRDD, rho):
 
     N_norm = L2norm(NothersRDD)
     YothersRDD =  NothersRDD.mapValues(lambda (Nm, Others): (dict( [(key, EuclidianPO(Nm[key], 1./rho, N_norm)) for key in Nm] ), Others) ).cache()
-    Y2norm = L2norm(YothersRDD)
+    if not lean:
+        Y2norm = L2norm(YothersRDD)
+    else:
+        Y2norm = None
     return (YothersRDD, Y2norm)
     
 def pnorm_proxop(N, p, rho, epsilon):

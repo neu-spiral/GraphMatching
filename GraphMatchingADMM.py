@@ -37,6 +37,9 @@ def testSimplexCondition(rdd,dir='row'):
 def evalSolvers(cls_args, P_vals, Phi_vals, stats, dumped_cls):
     solvers_cls = pickle.loads(dumped_cls)
     return solvers_cls(cls_args[0], cls_args[1]), P_vals, Phi_vals, stats
+def evalSolversY(cls_args, P_vals, Y_vals, Phi_vals, Upsilon_vals, stats, dumped_cls, rho_inner):
+    solvers_cls = pickle.loads(dumped_cls)
+    return solvers_cls(cls_args[0], cls_args[1], rho_inner), P_vals, Y_vals, Phi_vals, Upsilon_vals, stats
     
 
 
@@ -59,6 +62,7 @@ if __name__=="__main__":
     parser.add_argument('--logLevel',default='INFO', help='Verbosity level',choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument('--logfile',default='graphmatching.log',help='Log file')
     parser.add_argument('--maxiter',default=5,type=int, help='Maximum number of iterations')
+    parser.add_argument('--maxInnerADMMiter',default=40,type=int, help='Maximum number of Inner ADMM iterations')
     parser.add_argument('--N',default=8,type=int, help='Number of partitions')
     parser.add_argument('--Nrowcol',default=1,type=int, help='Level of parallelism for Row/Col RDDs')
     parser.add_argument('--p', default=1.5, type=float, help='p parameter in p-norm')
@@ -187,10 +191,11 @@ if __name__=="__main__":
 
        #Resume iterations from prevsiously dumped iterations. 
         ZRDD = sc.textFile(args.initRDD+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
-        PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
         if ParallelSolverClass == ParallelSolver:
+            PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
             PPhi = ParallelSolver(SolverClass,objectives,uniformweight,args.N,args.rhoP,args.alpha,lean=args.lean, RDD=PPhi_RDD)
         else:
+            PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Y_vals, Phi_vals, Upsilon_vals, stats): evalSolversY(cls_args, P_vals, Y_vals, Phi_vals, Upsilon_vals, stats, pickle.dumps(SolverClass), args.rho_inner)).persist(StorageLevel.MEMORY_ONLY)
             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.leanInner, RDD=PPhi_RDD)
         logger.info('From the last iteration solver (P/Phi) RDD stats: '+PPhi.logstats() )
 
@@ -243,7 +248,7 @@ if __name__=="__main__":
         if ParallelSolverClass == ParallelSolver:
             (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt)
         else:
-            (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=40)
+            (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter)
         logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
 
       
@@ -324,10 +329,10 @@ if __name__=="__main__":
 
                         upload_blob(args.bucketname, args.outputfile+"_trace", outfile_name)
                         upload_blob(args.bucketname, args.logfile, logfile_name)
-                        safeWrite_GCP(ZRDD,args.outputfileZRDD+"_%d_ZRDD" %iteration,args.bucketname)
-                        safeWrite_GCP(PPhi.PrimalDualRDD,args.outputfileZRDD+"_%d_PPhiRDD" %iteration,args.bucketname)
-                        safeWrite_GCP(QXi.PrimalDualRDD,args.outputfileZRDD+"_%d_QXiRDD" %iteration,args.bucketname)
-                        safeWrite_GCP(TPsi.PrimalDualRDD,args.outputfileZRDD+"_%d_TPsiRDD" %iteration,args.bucketname)
+                        safeWrite_GCP(ZRDD,args.outputfileZRDD+"_ZRDD",args.bucketname)
+                        safeWrite_GCP(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.bucketname)
+                        safeWrite_GCP(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.bucketname)
+                        safeWrite_GCP(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.bucketname)
             
 		#log.info("ZRDD is "+str(ZRDD.collect()))
                 dump_end_time = time.time()

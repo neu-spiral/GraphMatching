@@ -353,7 +353,9 @@ class ParallelSolver2norm(ParallelSolverPnorm):
 
             ##ADMM steps
             #Adapt the dual varible Upsilon
-            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
+            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar)).cache()
+            if checkpoint:
+                FmYNewUpsilonPPhi.localCheckpoint()
 
 
             #Update Y via prox. op. for ell_2 norm

@@ -20,7 +20,7 @@ class ParallelSolver():
        the last computation of the local solver. The class can be used as an interface to add "homogeneous" objectives in the consensus admm algorithm,
        that can be executed in parallel
     """
-    def __init__(self,LocalSolverClass,data,initvalue,N,rho,silent=True,lean=False, RDD=None, D=None, lambda_linear=1.0):
+    def __init__(self,LocalSolverClass,data,initvalue,N,rho,silent=False,lean=False, RDD=None, D=None, lambda_linear=1.0):
         """Class constructor. It takes as an argument a local solver class, data (of a form understandable by the local solver class), an initial value for the primal variables, and a boolean value; the latter can be used to suppress the evaluation of the objective. 
         """
         self.SolverClass=LocalSolverClass
@@ -36,7 +36,7 @@ class ParallelSolver():
         self.lean=lean
         self.varsToPartitions = self.PrimalDualRDD.flatMapValues( lambda  (solver,P,Phi,stats) : P.keys()).map(swap).partitionBy(self.N).cache() 
 
-    def joinAndAdapt(self,ZRDD, alpha, rho,checkpoint = False):
+    def joinAndAdapt(self,ZRDD, alpha, rho,checkpoint = False, forceComp=False):
         """ Given a ZRDD, adapt the local primal and dual variables. The former are updated via the proximal operator, the latter via gradient ascent.
         """
         toUnpersist = self.PrimalDualRDD         #Old RDD is to be uncached
@@ -49,7 +49,7 @@ class ParallelSolver():
         ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
         PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
 
-        if not self.lean:
+        if not self.lean or forceComp:
             oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Phi,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
             oldObjValue = PrimalDualOldZ.values().map(lambda ((solver,P,Phi,stats),Z): solver.evaluate(Z)).reduce(add)  #local solver should implement evaluate
 
@@ -63,7 +63,7 @@ class ParallelSolver():
         ##Unpersisit commented for now because running time increases.
        # toUnpersist.unpersist()
   
-        if not self.lean:
+        if not self.lean or forceComp:
 	    return (oldPrimalResidual,oldObjValue)
         else:
             return None
@@ -102,14 +102,9 @@ class ParallelSolverPnorm(ParallelSolver):
         self.rho_inner = rho_inner
         self.p = p
         self.varsToPartitions = self.PrimalDualRDD.flatMapValues( lambda  (solver,P,Y,Phi,Upsilon, stats) : P.keys()).map(swap).partitionBy(self.N).cache()
-    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger=None):
+    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger=None, forceComp=False):
         rho_inner = self.rho_inner
-        Dual = False
         p_param = self.p
-        if p_param > 2.:
-             #In this case find prox. op. for dual norm and use Moreau decomposition  
-             Dual = True
-             q_param = p_param/(p_param-1.)
         #Send z to the appropriate partitions
         def Fm(objs,P):
             """
@@ -128,7 +123,7 @@ class ParallelSolverPnorm(ParallelSolver):
 
         ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
         PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
-        if not self.silent:
+        if not self.silent or forceComp:
             oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
             oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z, p_param)).reduce(add))**(1./p_param)  #local solver should compute p-norm to the power p. 
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
@@ -149,15 +144,8 @@ class ParallelSolverPnorm(ParallelSolver):
             FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
  
 
-            if not Dual:
-                #Update Y via prox. op. for p-norm
-                NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-6,  self.lean and i<maxiters-1 )
-            else:
-                #Find prox-op for dual norm (q-norm)
-                NothersRDD = FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  )).mapValues(lambda (N_p, (solver, OldP, Y, Phi, Upsilon,stats,Zbar)):(N_p, (solver, OldP, Y, Phi, Upsilon,stats,Zbar,N_p)))
-                NewYUpsilonPhi, Ynorm = pnormOp(NothersRDD, q_param, rho_inner, 1.e-6,  self.lean and i<maxiters-1 )
-                #Update Y via finding the prox. op. for p-norm usuing Moreau decomposition  
-                NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar, N_p)):(dict( [(key, N_p[key]-Y[key]) for key in Y]), (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)))
+            #Update Y via prox. op. for p-norm
+            NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-6,  self.lean and i<maxiters-1 )
             NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
 
 
@@ -193,7 +181,7 @@ class ParallelSolverPnorm(ParallelSolver):
         if checkpoint:
             self.PrimalDualRDD.localCheckpoint()
 
-        if not self.silent:
+        if not self.silent or forceComp:
             return (oldPrimalResidual,oldObjValue)
         else:
             return None
@@ -217,7 +205,7 @@ class ParallelSolverPnorm(ParallelSolver):
            
                                                      
 class ParallelSolver1norm(ParallelSolverPnorm):
-    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger = None):
+    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger = None, forceComp=False):
         rho_inner = self.rho_inner
         p_param = 1
         #Send z to the appropriate partitions
@@ -238,7 +226,7 @@ class ParallelSolver1norm(ParallelSolverPnorm):
 
         ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
         PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
-        if not self.silent:
+        if not self.silent or forceComp:
             oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
             oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z, p_param)).reduce(add))**(1./p_param)  #local solver should compute p-norm to the power p. 
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
@@ -307,13 +295,13 @@ class ParallelSolver1norm(ParallelSolverPnorm):
         if checkpoint:
             self.PrimalDualRDD.localCheckpoint()
 
-        if not self.silent:
+        if not self.silent or forceComp:
             return (oldPrimalResidual,oldObjValue)
         else:
             return None
 
 class ParallelSolver2norm(ParallelSolverPnorm):
-    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger = None):
+    def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger = None, forceComp=False):
         rho_inner = self.rho_inner
         p_param = 2
         #Send z to the appropriate partitions
@@ -334,7 +322,7 @@ class ParallelSolver2norm(ParallelSolverPnorm):
 
         ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
         PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
-        if not self.silent:
+        if not self.silent or forceComp:
             oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
             oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z, p_param)).reduce(add))**(1./p_param)  #local solver should compute p-norm to the power p. 
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
@@ -353,9 +341,7 @@ class ParallelSolver2norm(ParallelSolverPnorm):
 
             ##ADMM steps
             #Adapt the dual varible Upsilon
-            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar)).cache()
-            if checkpoint:
-                FmYNewUpsilonPPhi.localCheckpoint()
+            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
 
 
             #Update Y via prox. op. for ell_2 norm
@@ -397,7 +383,7 @@ class ParallelSolver2norm(ParallelSolverPnorm):
         if checkpoint:
             self.PrimalDualRDD.localCheckpoint()
 
-        if not self.silent:
+        if not self.silent or forceComp:
             return (oldPrimalResidual,oldObjValue)
         else:
             return None

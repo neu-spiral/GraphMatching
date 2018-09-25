@@ -87,7 +87,7 @@ if __name__=="__main__":
     if ParallelSolverClass == ParallelSolver:
         RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=args.Nrowcol, rho=rho, D=D, lambda_linear=args.lambda_linear)
     else:
-        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=N, rho=rho, p=p, rho_inner=rho_inner)
+        RDDSolver_cls = ParallelSolverClass(LocalSolverClass=SolverClass, data=data, initvalue=uniformweight, N=N, rho=rho, p=p, rho_inner=rho_inner, lean=False)
 
 
     #Create consensus variable, initialized to uniform assignment ignoring constraints
@@ -102,7 +102,7 @@ if __name__=="__main__":
         if ParallelSolverClass == ParallelSolver: 
             (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt)
         else:
-            (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger)
+            (oldPrimalResidualQ,oldObjQ) = RDDSolver_cls.joinAndAdapt(ZRDD, alpha, rho, checkpoint=chckpnt, maxiters=40, residual_tol=1.e-020, logger=logger)
 
         allvars = RDDSolver_cls.getVars(rho)
 
@@ -115,7 +115,6 @@ if __name__=="__main__":
         #OldZ.unpersist()
         now = time.time()
         logger.info("Iteration %d  (Primal/Dual) stats: %s, objective value is %f residual is %f, dual residual is %f, time is %f, iteration time is %f" % (i,RDDSolver_cls.logstats(),oldObjQ, oldPrimalResidualQ,dualresidual, now-tstart,now-tlast))
-        print testSimplexCondition(ZRDD, 'row')
 	tlast=now
        
     tend = time.time()

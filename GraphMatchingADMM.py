@@ -187,24 +187,25 @@ if __name__=="__main__":
         #Load the previous trace file
         fTrace = open(args.outputfile, 'r')
         (prevArgs, trace) = pickle.load(fTrace)
-        numb_of_prev_iters = len(trace)
+       # numb_of_prev_iters = len(trace)
+        numb_of_prev_iters = max(trace.keys())+1
 
        #Resume iterations from prevsiously dumped iterations. 
         ZRDD = sc.textFile(args.initRDD+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
         if ParallelSolverClass == ParallelSolver:
             PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
-            PPhi = ParallelSolver(SolverClass,objectives,uniformweight,args.N,args.rhoP,args.alpha,lean=args.lean, RDD=PPhi_RDD)
+            PPhi = ParallelSolver(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, lean=args.lean,silent=args.silent, RDD=PPhi_RDD)
         else:
             PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Y_vals, Phi_vals, Upsilon_vals, stats): evalSolversY(cls_args, P_vals, Y_vals, Phi_vals, Upsilon_vals, stats, pickle.dumps(SolverClass), args.rho_inner)).persist(StorageLevel.MEMORY_ONLY)
-            PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.leanInner, RDD=PPhi_RDD)
+            PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner, lean=args.leanInner, silent=args.silent, RDD=PPhi_RDD)
         logger.info('From the last iteration solver (P/Phi) RDD stats: '+PPhi.logstats() )
 
         QXi_RDD = sc.textFile(args.initRDD+"_QXiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalRowProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
-        QXi = ParallelSolver(LocalRowProjectionSolver,G,uniformweight,args.N,args.rhoQ,args.alpha,lean=args.lean, RDD=QXi_RDD)
+        QXi = ParallelSolver(LocalSolverClass=LocalRowProjectionSolver, data=G, initvalue=uniformweight, N=args.Nrowcol, rho=args.rhoQ, D=D, lambda_linear=args.lambda_linear, lean=args.lean, silent=args.silent, RDD=QXi_RDD)
         logger.info('From the last iteration row (Q/Xi) RDD stats: '+QXi.logstats() )
 
         TPsi_RDD = sc.textFile(args.initRDD+"_TPsiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalColumnProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
-        TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.N,args.rhoT,args.alpha,lean=args.lean, RDD=TPsi_RDD)
+        TPsi = ParallelSolver(LocalSolverClass=LocalColumnProjectionSolver, data=G, initvalue=uniformweight, N=args.Nrowcol, rho=args.rhoT, D=D, lambda_linear=args.lambda_linear, lean=args.lean, silent=args.silent, RDD=TPsi_RDD)
 
        
         logger.info('From the last iteration column (T/Psi) RDD stats: '+TPsi.logstats() )
@@ -213,15 +214,15 @@ if __name__=="__main__":
 
        #Create primal and dual variables and associated solvers
         if ParallelSolverClass == ParallelSolver:
-             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, D=D, lambda_linear=args.lambda_linear,lean=args.lean)
+             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, lean=args.lean,silent=args.silent)
         else:
-             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.leanInner)
+             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.leanInner, silent=args.silent)
         logger.info('Partitioned data (P/Phi) RDD stats: '+PPhi.logstats() )    
       
-        QXi = ParallelSolver(LocalRowProjectionSolver,G,uniformweight,args.Nrowcol,args.rhoQ,args.alpha,lean=args.lean)
+        QXi = ParallelSolver(LocalSolverClass=LocalRowProjectionSolver, data=G, initvalue=uniformweight, N=args.Nrowcol, rho=args.rhoQ, D=D, lambda_linear=args.lambda_linear, lean=args.lean, silent=args.silent)
         logger.info('Row RDD (Q/Xi) RDD stats: '+QXi.logstats() )
 
-        TPsi = ParallelSolver(LocalColumnProjectionSolver, G, uniformweight,args.Nrowcol,args.rhoT,args.alpha,lean=args.lean)
+        TPsi = ParallelSolver(LocalSolverClass=LocalColumnProjectionSolver, data=G, initvalue=uniformweight, N=args.Nrowcol, rho=args.rhoT, D=D, lambda_linear=args.lambda_linear, lean=args.lean, silent=args.silent)
         logger.info('Column RDD (T/Psi) RDD stats: '+TPsi.logstats() )
 
 
@@ -239,17 +240,29 @@ if __name__=="__main__":
     last_time = start_timing
     dump_time = 0.
     for iteration in range(args.maxiter):
+        #checkpoint he RDDs preiodically 
         chckpnt = (iteration!=0 and iteration % args.checkpoint_freq==0)
+        #in Silent mode forceComp will force computation of the stats, e.g., in the last iteration
+        forceComp = iteration==args.maxiter-1
 
-        (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, args.rhoQ, checkpoint=chckpnt)
-        logger.info("Iteration %d row (Q/Xi) stats: %s" % (iteration,QXi.logstats())) 
-        (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt)
-        logger.info("Iteration %d column (T/Psi) stats: %s" % (iteration,TPsi.logstats())) 
-        if ParallelSolverClass == ParallelSolver:
-            (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt)
+        if not args.silent or forceComp:
+            (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, args.rhoQ, checkpoint=chckpnt, forceComp=forceComp)
+            logger.info("Iteration %d row (Q/Xi) stats: %s" % (iteration,QXi.logstats())) 
+            (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt, forceComp=forceComp)
+            TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt)
+            logger.info("Iteration %d column (T/Psi) stats: %s" % (iteration,TPsi.logstats())) 
+            if ParallelSolverClass == ParallelSolver:
+                (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, forceComp=forceComp)
+            else:
+                (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
+            logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
         else:
-            (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter)
-        logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
+            QXi.joinAndAdapt(ZRDD, args.alpha, args.rhoQ, checkpoint=chckpnt, forceComp=forceComp)
+            TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt, forceComp=forceComp)
+            if ParallelSolverClass == ParallelSolver:
+                PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, forceComp=forceComp)
+            else:
+                PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
 
       
 	oldZ = ZRDD
@@ -271,7 +284,7 @@ if __name__=="__main__":
 	   logger.debug("Iteration %d Z is:\n%s" %(iteration,pformat(list(ZRDD.collect()),width=30)) )
 
        	Zstats ={}
-	if not (args.silent or args.lean):
+	if (not (args.silent or args.lean)) or (args.silent and forceComp):
 	
            #Z feasibility
 	   Zstats['POS'] = testPositivity(ZRDD)
@@ -299,7 +312,7 @@ if __name__=="__main__":
 	   logger.info("Iteration %d-1 Z residuals: " % iteration+ "\t".join( [ key+":"+str(Zstats[key])  for key in ['DRES','PRES','QRES','TRES']] ) )
              
   
-	if not args.silent: #under "lean", still output some basic stats
+	if not args.silent or forceComp: #under "lean", still output some basic stats. Also output information for the last iteration. 
 	   now = time.time() 
            Zstats['TIME'] = now-start_timing-dump_time
            Zstats['IT_TIME'] = now-last_time-dump_time

@@ -2,7 +2,7 @@ import numpy as np
 import sys,argparse,logging,datetime,pickle,time
 from pyspark import SparkContext,StorageLevel,SparkConf
 from operator import add,and_
-from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver,LocalLSSolver
+from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver,LocalLSSolver, LocalL1Solver_Old
 from ParallelSolvers import ParallelSolver, ParallelSolver1norm, ParallelSolverPnorm, ParallelSolver2norm
 from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero
 from helpers_GCP import safeWrite_GCP,upload_blob, download_blob
@@ -57,7 +57,7 @@ if __name__=="__main__":
     parser.add_argument('--linear_term',default=None,help="Linear term to be added in the objective")
     parser.add_argument('--problemsize',default=1000,type=int, help='Problem size. Used to initialize uniform allocation, needed when objectivefile is passed')
     parser.add_argument('--parallelSolver',default='ParallelSolver', choices=['ParallelSolver', 'ParallelSolver1norm', 'ParallelSolverPnorm', 'ParallelSolver2norm'],help='Parallel Solver')
-    parser.add_argument('--solver',default='LocalLSSolver', help='Local Solver',choices=['LocalL1Solver','LocalL2Solver','FastLocalL2Solver','LocalColumnProjectionSolver','LocalRowProjectionSolver','LocalLSSolver'])
+    parser.add_argument('--solver',default='LocalLSSolver', help='Local Solver',choices=['LocalL1Solver','LocalL2Solver','FastLocalL2Solver','LocalColumnProjectionSolver','LocalRowProjectionSolver','LocalLSSolver','LocalL1Solver_Old'])
     parser.add_argument('--debug',default='INFO', help='Verbosity level',choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument('--logLevel',default='INFO', help='Verbosity level',choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument('--logfile',default='graphmatching.log',help='Log file')
@@ -209,6 +209,7 @@ if __name__=="__main__":
 
        
         logger.info('From the last iteration column (T/Psi) RDD stats: '+TPsi.logstats() )
+
 
     else:
 

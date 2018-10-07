@@ -3,6 +3,8 @@ import os
 import shutil
 #from google.cloud import storage
 
+    
+
 def readfile(fname):
     f = open(fname, 'r')
     m = 0 
@@ -94,6 +96,12 @@ def identityHash(i):
     "Identity function"	
     return int(i)
 
+def cartesianProduct(graph1,graph2):
+    nodes1 = graph1.flatMap(lambda (u,v):[u,v]).distinct()
+    nodes2 = graph2.flatMap(lambda (u,v):[u,v]).distinct()
+
+    G = nodes1.cartesian(nodes2)
+    return G
 
 def pretty(l):
     return " ".join(map(str,l))

@@ -46,6 +46,7 @@ if __name__=='__main__':
                    help='pickled files to be processed')
     parser.add_argument('--labels',  type=str,default=None ,help='Comma separated labels to be used in figures')
     parser.add_argument('--outputdir', default='./figs', type=str,help='output dir')
+    parser.add_argument('--objective',default='||AP-PB||_2',type=str, help='objective function to be displayed on y-axis.')
     parser.add_argument('--title', default=None, type=str, help='plots title')
 
     myargs = parser.parse_args()
@@ -60,7 +61,7 @@ if __name__=='__main__':
 
     
     data ={}
-    data_labels = { 'TIME':'t (min)','OBJ':'||AP-PB||_F','PRES':'PRES','DRES':'DRES'}
+    data_labels = { 'TIME':'t (min)','OBJ':myargs.objective,'PRES':'PRES','DRES':'DRES'}
     data['TIME']={}
     data['OBJ'] ={}
     data['PRES'] ={}

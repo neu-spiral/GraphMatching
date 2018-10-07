@@ -52,6 +52,11 @@ def pnormOp(NothersRDD,p, rho, epsilon, lean=False):
     """
     def pnorm(RDD, p):
         return (  RDD.values().flatMap(lambda (Nm, Others):[abs(Nm[key][0])**p for key in Nm]).reduce(lambda x,y:x+y) )**(1./p)
+    def ga_arg_nonzero(Nr, p, Y_norm):
+        if Nr<=0:
+            return 0.0
+        else:
+            return Y_norm * Nr**((2-p)/(p-1))
    
     
      #Normalize N
@@ -72,7 +77,7 @@ def pnormOp(NothersRDD,p, rho, epsilon, lean=False):
         error = epsilon + 1
         while error>epsilon:
             Y_norm = (Y_norm_L + Y_norm_U)/2   
-            TempRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, ( Nm[key][0]*solve_ga_bisection(Y_norm *Nm[key][0] **((2-p)/(p-1)),  p ), Nm[key][1]) ) for key in Nm]) ,Others) )
+            TempRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, ( Nm[key][0]*solve_ga_bisection(ga_arg_nonzero(Nm[key][0], p, Y_norm),  p ), Nm[key][1]) ) for key in Nm]) ,Others) )
       
             Y_norm_current = pnorm(TempRDD, p)
             if Y_norm_current<Y_norm:
@@ -80,7 +85,7 @@ def pnormOp(NothersRDD,p, rho, epsilon, lean=False):
             else:
                 Y_norm_L = Y_norm
             error = (Y_norm_U-Y_norm_L)/N_norm
-            print "Error in p-norm Prox. Op. is %f" %error
+           # print "Error in p-norm Prox. Op. is %f" %error
 ##################################
     #Test optimality
     #Ypnorm =  TempRDD.values().flatMap(lambda (Y, Others): [Y[key][0]**p for key in Y]).reduce(lambda x,y:x+y)
@@ -132,6 +137,12 @@ def pnorm_proxop(N, p, rho, epsilon):
     """Solve prox operator for vector N and p-norm, i.e., the follwoing problem, via bisection
            min_Z \|Z\|_p + rho/2 * \|Z-N\|_2^2
     """
+    def ga_arg_nonzero(Nr, p, Z_norm):
+        if Nr<=0:
+            return 0.0
+        else:
+            return Z_norm * Nr**((2-p)/(p-1))
+        
 
     t_start = time.time()
 
@@ -148,14 +159,14 @@ def pnorm_proxop(N, p, rho, epsilon):
     error = epsilon + 1
     while error>epsilon:
         Z_norm = (Z_norm_L + Z_norm_U)/2
-        Z = N.mapValues(lambda (Nr, Nr_sign):  (Nr*solve_ga_bisection(Z_norm * Nr**((2-p)/(p-1)), p), Nr_sign)) 
+        Z = N.mapValues(lambda (Nr, Nr_sign):  (Nr*solve_ga_bisection(ga_arg_nonzero(Nr, p, Z_norm), p), Nr_sign)) 
         Z_norm_current = normp(Z, p)
         if Z_norm_current<Z_norm:
             Z_norm_U = Z_norm
         else:
             Z_norm_L = Z_norm
         error = (Z_norm_U-Z_norm_L)/N_norm
-     #   print "Error is %f, time is %f" %(error, time.time()-t_start)
+        print "Error is %f, time is %f" %(error, time.time()-t_start)
     Z = Z.mapValues(lambda (zi, zi_sign):zi*zi_sign/rho).cache()
     t_end = time.time()
     return Z, Z_norm, t_end-t_start     

@@ -6,16 +6,18 @@ from pyspark import SparkContext, StorageLevel
 from debug import logger
 from helpers import clearFile, writeMat2File
 import numpy as np
-#import helpers_GCP
+from debug import logger 
+from helpers_GCP import upload_blob
 def norm_p(Y, p):
     "Compute p-norm of the vector Y"
-    return ( sum([abs(float(y))**p for y in Y]))**1./p
+    return ( sum([abs(float(y))**p for y in Y]))**(1./p)
     
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Parallel Graph Matching Test.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('objectives',type=str,help ="File containing data, either constraints or objectives.")
     parser.add_argument('G', type=str,help="File containing the variables.")
     parser.add_argument('--outfile', type=str, help='File to store running ansd time.')
+    parser.add_argument('--logfile',default='graphmatching.log',help='Log file')
     parser.add_argument('--rho',default=1.0,type=float, help='Rho value, used for primal variables')
     parser.add_argument('--rho_inner',default=1.0,type=float, help='Rho value, used for inner ADMM')
     parser.add_argument('--N',default=1,type=int, help='Level of parallelism')
@@ -29,15 +31,23 @@ if __name__=="__main__":
     sc = SparkContext(appName="Inner ADMM Tester for using %d partitions" %args.N)
     sc.setLogLevel('OFF')
 
+
+    logger.setLevel(logging.INFO)
+    clearFile(args.logfile)
+    fh = logging.FileHandler(args.logfile)
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(fh)
+
     uniformweight = 1./20
-    ParallelSolver = eval(args.ParallelSolver)
+    ParallelSolverCls = eval(args.ParallelSolver)
     data = sc.textFile(args.objectives).map(lambda x:eval(x)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
 
-    RDDSolver_cls = ParallelSolver(LocalSolverClass=LocalLSSolver, data=data, initvalue=uniformweight, N=args.N, rho=args.rho, rho_inner=args.rho_inner, p=args.p)
+    RDDSolver_cls = ParallelSolverCls(LocalSolverClass=LocalLSSolver, data=data, initvalue=uniformweight, N=args.N, rho=args.rho, rho_inner=args.rho_inner, p=args.p, lean=True)
 
     G = sc.textFile(args.G).map(eval)
     #Create consensus variable, initialized to uniform assignment ignoring constraints
-    ZRDD = G.map(lambda var:(var,uniformweight+0.4)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+    ZRDD = G.map(lambda var:(var,uniformweight+0.2)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
     
     P = {}
     Y = {}
@@ -59,11 +69,21 @@ if __name__=="__main__":
         P_vec[ind] = P[ local_solver_cls.translate_coordinates2ij[ind]] 
         Phi_vec[ind] = Phi[ local_solver_cls.translate_coordinates2ij[ind]]
         Z_vec[ind] = Z[ local_solver_cls.translate_coordinates2ij[ind]]
-   # writeMat2File('data/D', D_mat)
-   # writeMat2File('data/Zbar', Z_vec-Phi_vec)
+
+   
+    G1G2 = args.G.split('/')[-1]
+    writeMat2File('/home/armin_mrm93/D%s' %G1G2, D_mat)
+    writeMat2File('/home/armin_mrm93/Zbar%s' %G1G2, Z_vec-Phi_vec)
+    D_name = "outputZs_matrix/D%s" %G1G2
+    Zbar_name = "outputZs_matrix/Zbar%s" %G1G2
+    upload_blob('armin-bucket', '/home/armin_mrm93/D%s' %G1G2, D_name)
+    upload_blob('armin-bucket', '/home/armin_mrm93/Zbar%s' %G1G2, Zbar_name)
 
 
-    RDDSolver_cls.joinAndAdapt(ZRDD = ZRDD, alpha = args.alpha, rho = args.rho, maxiters=args.maxiters)
+    
+
+
+    RDDSolver_cls.joinAndAdapt(ZRDD = ZRDD, alpha = args.alpha, rho = args.rho, maxiters=args.maxiters, logger=logger)
 
     (splitID, (solver_args, P, Y, Phi, Upsilon, stats) ) = RDDSolver_cls.PrimalDualRDD.collect()[0]
     Y_vec  = np.matrix( np.zeros((pi,1)))
@@ -78,12 +98,22 @@ if __name__=="__main__":
     Grad_P = args.rho * (P_vec - (Z_vec-Phi_vec)) - D_mat.T * Upsilon_vec
     grad_Y = np.matrix( np.zeros((pi,1)))
     Y_norm = norm_p(Y_vec, args.p)
+    print Y_norm
     if Y_norm>0.0:
         for i in range(pi):
             grad_Y[i] = np.sign(float(Y_vec[i]))  * (abs(float(Y_vec[i]))/Y_norm)**(args.p-1.) + Upsilon_vec[i]
-    print grad_Y, Y_vec
-    print Y_vec - D_mat * P_vec
-    print Grad_P
+    print np.linalg.norm(grad_Y)#, Y_vec
+    print np.linalg.norm(Y_vec - D_mat * P_vec)
+    print np.linalg.norm(Grad_P)
+   #Write P and Y
+    Pfile = 'P%s_%s_p%0.1f' %(G1G2, args.ParallelSolver, args.p)
+    Yfile = 'Y%s_%s_p%0.1f' %(G1G2, args.ParallelSolver, args.p)
+    writeMat2File('/home/armin_mrm93/%s' %Pfile, P_vec)
+    writeMat2File('/home/armin_mrm93/%s' %Yfile, Y_vec)
+    upload_blob('armin-bucket', '/home/armin_mrm93/%s' %Pfile, 'PY_vars/%s' %Pfile) 
+    upload_blob('armin-bucket', '/home/armin_mrm93/%s' %Yfile, 'PY_vars/%s' %Yfile) 
+   
+   
 
 
     

@@ -145,7 +145,7 @@ class ParallelSolverPnorm(ParallelSolver):
  
 
             #Update Y via prox. op. for p-norm
-            NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-6,  self.lean and i<maxiters-1 )
+            NewYUpsilonPhi, Ynorm = pnormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm, OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ), p_param, rho_inner, 1.e-3,  self.lean and i<maxiters-1 )
             NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
 
 
@@ -327,6 +327,8 @@ class ParallelSolver2norm(ParallelSolverPnorm):
             oldObjValue = (PrimalDualOldZ.values().map(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): solver.evaluate(Z, p_param)).reduce(add))**(1./p_param)  #local solver should compute p-norm to the power p. 
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
         ZbarPrimalDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Z): ( solver,P,Y,Phi,Upsilon,stats,dict( [(key, Z[key]-Phi[key]) for key in Z])))
+
+
 
    
         last = time()

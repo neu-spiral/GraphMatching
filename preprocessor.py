@@ -140,8 +140,8 @@ if __name__=="__main__":
 
     #repeat edges if graph is undirected
     if args.undirected:
-        graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)])
-	graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)])
+        graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
+	graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
 	
 
     #Generate/Read Constraints
@@ -162,7 +162,7 @@ if __name__=="__main__":
 	    G = matchColors(color1,color2, numPartitions=args.N).persist(storage_level) 	
         if args.outputconstraintfile:
             logger.info('Write  constraints')
-            G.saveAsTextFile(args.outputconstraintfile)
+            safeWrite(G, args.outputconstraintfile, args.driverdump)
             #safeWrite(G,args.outputconstraintfile,args.driverdump)
     else:
         logger.info('Read  constraints')

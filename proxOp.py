@@ -118,6 +118,9 @@ def EuclidiannormOp(NothersRDD, rho):
     N_norm = L2norm(NothersRDD)
     YothersRDD =  NothersRDD.mapValues(lambda (Nm, Others): (dict( [(key, EuclidianPO(Nm[key], 1./rho, N_norm)) for key in Nm] ), Others) ).cache()
     Y2norm = L2norm(YothersRDD)
+     #Test optimality
+    print YothersRDD.join(NothersRDD).mapValues(lambda ( (Ynew, Others), (Nm, Others_cp ) ): dict([(key, Ynew[key]/Y2norm+Ynew[key]-Nm[key]) for key in Ynew])).collect()
+########################################
     return (YothersRDD, Y2norm)
     
 def pnorm_proxop(N, p, rho, epsilon):

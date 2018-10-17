@@ -9,7 +9,7 @@ import numpy as np
 #import helpers_GCP
 def norm_p(Y, p):
     "Compute p-norm of the vector Y"
-    return ( sum([abs(float(y))**p for y in Y]))**1./p
+    return ( sum([abs(float(y))**p for y in Y]))**(1./p)
     
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Parallel Graph Matching Test.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -78,6 +78,7 @@ if __name__=="__main__":
     Grad_P = args.rho * (P_vec - (Z_vec-Phi_vec)) - D_mat.T * Upsilon_vec
     grad_Y = np.matrix( np.zeros((pi,1)))
     Y_norm = norm_p(Y_vec, args.p)
+  
     if Y_norm>0.0:
         for i in range(pi):
             grad_Y[i] = np.sign(float(Y_vec[i]))  * (abs(float(Y_vec[i]))/Y_norm)**(args.p-1.) + Upsilon_vec[i]

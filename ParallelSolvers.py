@@ -88,7 +88,7 @@ class ParallelSolver():
 
 class ParallelSolverPnorm(ParallelSolver):
     """This class is inheritted from ParallelSolver, it updates P and Y vriables for a general p-norm solver via inner ADMM."""
-    def __init__(self,LocalSolverClass,data,initvalue,N,rho,rho_inner, p, silent=False,lean=False, RDD=None):
+    def __init__(self,LocalSolverClass,data,initvalue,N,rho,rho_inner, p, silent=False,lean=False, RDD=None, debug=False):
         """Class constructor. It takes as an argument a local solver class, data (of a form understandable by the local solver class), an initial value for the primal variables, and a boolean value; the latter can be used to suppress the evaluation of the objective. 
         """
         self.SolverClass=LocalSolverClass
@@ -99,12 +99,16 @@ class ParallelSolverPnorm(ParallelSolver):
         self.N = N
         self.silent=silent
         self.lean=lean
+        self.debug = debug #In debug mode keep track of the obj. val. and residuals
         self.rho_inner = rho_inner
         self.p = p
         self.varsToPartitions = self.PrimalDualRDD.flatMapValues( lambda  (solver,P,Y,Phi,Upsilon, stats) : P.keys()).map(swap).partitionBy(self.N).cache()
     def joinAndAdapt(self,ZRDD, alpha, rho, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger=None, forceComp=False):
         rho_inner = self.rho_inner
         p_param = self.p
+        #In debug mode keep track of the obj. val. and residuals
+        if self.debug:
+            trace = {}
         #Send z to the appropriate partitions
         def Fm(objs,P):
             """
@@ -129,7 +133,9 @@ class ParallelSolverPnorm(ParallelSolver):
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
         ZbarPrimalDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Z): ( solver,P,Y,Phi,Upsilon,stats,dict( [(key, Z[key]-Phi[key]) for key in Z])))
         
+ #       print ZbarPrimalDual.values().map(lambda (solver,P,Y,Phi,Upsilon,stats, Z): Z).take(1)
         last = time()
+        start_time = time()
         #Start the inner ADMM iterations
         for i in range(maxiters):
             #Compute vectors Fm(Pm)
@@ -137,6 +143,7 @@ class ParallelSolverPnorm(ParallelSolver):
             if not self.lean or (self.lean and i==maxiters-1):
                #Compute the residual 
                 OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,OldP,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
+                
 
 
             ##ADMM steps
@@ -172,6 +179,14 @@ class ParallelSolverPnorm(ParallelSolver):
             now = time()
             if logger != None and ( not self.lean or (self.lean and i==maxiters-1) ):
                 logger.info("Inner ADMM iteration %d, p-norm is %f, objective is %f, residual is %f, dual residual is %f, time is %f" %(i, Ynorm, objval, OldinnerResidual, DualInnerResidual, now-last))
+            if (not self.lean or (self.lean and i==maxiters-1)) and self.debug:
+                trace[i] = {}
+                trace[i]['OBJ'] = objval
+                trace[i]['PRES'] = OldinnerResidual
+                trace[i]['DRES'] = DualInnerResidual
+                trace[i]['IT_TIME'] = now-last 
+                trace[i]['TIME'] = now-start_time
+                 
             last = time()
             if not self.lean and DualInnerResidual<residual_tol and OldinnerResidual<residual_tol:
                 break
@@ -180,6 +195,9 @@ class ParallelSolverPnorm(ParallelSolver):
         #Checkpointing
         if checkpoint:
             self.PrimalDualRDD.localCheckpoint()
+
+        if self.debug:
+            return trace
 
         if not self.silent or forceComp:
             return (oldPrimalResidual,oldObjValue)

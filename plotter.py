@@ -46,6 +46,8 @@ if __name__=='__main__':
                    help='pickled files to be processed')
     parser.add_argument('--labels',  type=str,default=None ,help='Comma separated labels to be used in figures')
     parser.add_argument('--outputdir', default='./figs', type=str,help='output dir')
+    parser.add_argument('--objective',default='||AP-PB||_2',type=str, help='objective function to be displayed on y-axis.')
+    parser.add_argument('--title', default=None, type=str, help='plots title')
 
     myargs = parser.parse_args()
     
@@ -59,13 +61,16 @@ if __name__=='__main__':
 
     
     data ={}
-    data_labels = { 'TIME':'t (min)','OBJ':'||AP-PB||_F','PRES':'PRES','DRES':'DRES'}
+    data_labels = { 'TIME':'t (min)','OBJ':myargs.objective,'PRES':'PRES','DRES':'DRES'}
     data['TIME']={}
     data['OBJ'] ={}
     data['PRES'] ={}
     data['DRES'] ={}
 
     for filename in myargs.filenames:
+        #Added to process based on iteration time rather than total time
+        cuuernt_time = 0.0
+        time_steps = []
 	print 'Processing...', filename
 
 	with open(filename,'rb') as f:
@@ -73,7 +78,12 @@ if __name__=='__main__':
 
 	print 'Read trace with parameters',arg,'total iterations:',len(trace)
 	iterations = sorted(trace.keys())
-        data['TIME'][filename] = [trace[iteration]['TIME']/60.0 for iteration in iterations]
+        for iteration in iterations:
+            cuuernt_time += trace[iteration]['IT_TIME']/60.0
+            time_steps.append(cuuernt_time)
+
+        data['TIME'][filename] = time_steps
+       # data['TIME'][filename] = [trace[iteration]['TIME']/60.0 for iteration in iterations]
         data['OBJ'][filename] = [trace[iteration]['OLDOBJ'] for iteration in iterations]
         data['PRES'][filename] = [ (trace[iteration]['PRES']+ trace[iteration]['QRES']+trace[iteration]['TRES'])/3. for iteration in iterations]
         data['DRES'][filename] = [ trace[iteration]['DRES'] for iteration in iterations]
@@ -83,6 +93,8 @@ if __name__=='__main__':
     for data_label in ['OBJ','PRES','DRES']:
     	fig =plt.figure()
     	ax = fig.add_subplot(1,1,1)
+        if myargs.title:
+            ax.set_title(myargs.title)
         lines = []
         for (form,filename) in zip(forms[:len(myargs.filenames)],myargs.filenames):
     	   line, =ax.plot(data['TIME'][filename],data[data_label][filename],form,label=labels[filename])

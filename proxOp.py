@@ -45,13 +45,18 @@ def normp(RDD, p):
     """Compute p-norm of a vector stored as an RDD with its sign."""
     norm_to_P =  RDD.values().map(lambda (x, x_sign):abs(x)**p).reduce(lambda x,y:x+y)
     return norm_to_P**(1./p)
-def pnormOp(NothersRDD,p, rho, epsilon):
+def pnormOp(NothersRDD,p, rho, epsilon, lean=False):
     """Prox. operator for p-norm, i.e., solve the following problem:
            min_Y \|Y\|_p + rho/2*\|Y-N\|_2^2,
         where N values are given in NothersRDD, s.t., each partition i contains (N_i, Others_i) and N_i is a dictionary.
     """
     def pnorm(RDD, p):
         return (  RDD.values().flatMap(lambda (Nm, Others):[abs(Nm[key][0])**p for key in Nm]).reduce(lambda x,y:x+y) )**(1./p)
+    def ga_arg_nonzero(Nr, p, Y_norm):
+        if Nr<=0:
+            return 0.0
+        else:
+            return Y_norm * Nr**((2-p)/(p-1))
    
     
      #Normalize N
@@ -61,7 +66,6 @@ def pnormOp(NothersRDD,p, rho, epsilon):
     q = p/(p-1.)
     N_qnorm = pnorm(NothersRDD, q)
     if N_qnorm<=1.:
-        print N_qnorm
         YothersRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, 0.0 ) for key in Nm]) ,Others) ).cache()
         Ypnorm = 0.0
     else:
@@ -73,7 +77,7 @@ def pnormOp(NothersRDD,p, rho, epsilon):
         error = epsilon + 1
         while error>epsilon:
             Y_norm = (Y_norm_L + Y_norm_U)/2   
-            TempRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, ( Nm[key][0]*solve_ga_bisection(Y_norm *Nm[key][0] **((2-p)/(p-1)),  p ), Nm[key][1]) ) for key in Nm]) ,Others) )
+            TempRDD = NothersRDD.mapValues(lambda (Nm, Others): ( dict([(key, ( Nm[key][0]*solve_ga_bisection(ga_arg_nonzero(Nm[key][0], p, Y_norm),  p ), Nm[key][1]) ) for key in Nm]) ,Others) )
       
             Y_norm_current = pnorm(TempRDD, p)
             if Y_norm_current<Y_norm:
@@ -81,7 +85,7 @@ def pnormOp(NothersRDD,p, rho, epsilon):
             else:
                 Y_norm_L = Y_norm
             error = (Y_norm_U-Y_norm_L)/N_norm
-            print "Error in p-norm Prox. Op. is %f" %error
+           # print "Error in p-norm Prox. Op. is %f" %error
 ##################################
     #Test optimality
     #Ypnorm =  TempRDD.values().flatMap(lambda (Y, Others): [Y[key][0]**p for key in Y]).reduce(lambda x,y:x+y)
@@ -92,22 +96,28 @@ def pnormOp(NothersRDD,p, rho, epsilon):
 ###################################
         #Denormalize the solution 
         YothersRDD = TempRDD.mapValues(lambda (Nm, Others):(dict([(key, Nm[key][1]*Nm[key][0]/rho) for key in Nm]), Others)).cache()
-        #Compute the p-norm for the final solution
-        Ypnorm =  YothersRDD.values().flatMap(lambda (Y, Others): [abs(Y[key])**p for key in Y]).reduce(lambda x,y:x+y)
-        Ypnorm = Ypnorm**(1./p)
+        if not lean:
+            #Compute the p-norm for the final solution
+            Ypnorm =  YothersRDD.values().flatMap(lambda (Y, Others): [abs(Y[key])**p for key in Y]).reduce(lambda x,y:x+y)
+            Ypnorm = Ypnorm**(1./p)
+        else:
+            Ypnorm = None 
     return (YothersRDD, Ypnorm) 
 
 
-def L1normOp(NothersRDD, rho):
+def L1normOp(NothersRDD, rho, lean=False):
     """Prox. operator for p-norm, i.e., solve the following problem:
            min_Y \|Y\|_1 + rho/2*\|Y-N\|_2^2,
         where N values are given in NothersRDD, s.t., each partition i contains (N_i, Others_i) and N_i is a dictionary. The solution is simly given by appllying soft threasholding 
     """
     YothersRDD =  NothersRDD.mapValues(lambda (Nm, Others): (dict( [(key, softThresholding(Nm[key], 1./rho)) for key in Nm] ), Others) ).cache()
-    Y1norm = YothersRDD.values().flatMap(lambda (Y, Others):[abs(Y[key]) for key in Y]).reduce(lambda x,y:x+y)
+    if not lean:
+        Y1norm = YothersRDD.values().flatMap(lambda (Y, Others):[abs(Y[key]) for key in Y]).reduce(lambda x,y:x+y)
+    else:
+        Y1norm = None
     return (YothersRDD, Y1norm)
 
-def EuclidiannormOp(NothersRDD, rho):
+def EuclidiannormOp(NothersRDD, rho, lean=False):
     """Prox. operator for p-norm, i.e., solve the following problem:
            min_Y \|Y\|_2 + rho/2*\|Y-N\|_2^2,
         where N values are given in NothersRDD, s.t., each partition i contains (N_i, Others_i) and N_i is a dictionary. The solution is simly given by appllying Euclidian norm proximal operator, which has a closed-form solution. 
@@ -117,16 +127,24 @@ def EuclidiannormOp(NothersRDD, rho):
 
     N_norm = L2norm(NothersRDD)
     YothersRDD =  NothersRDD.mapValues(lambda (Nm, Others): (dict( [(key, EuclidianPO(Nm[key], 1./rho, N_norm)) for key in Nm] ), Others) ).cache()
-    Y2norm = L2norm(YothersRDD)
      #Test optimality
-    print YothersRDD.join(NothersRDD).mapValues(lambda ( (Ynew, Others), (Nm, Others_cp ) ): dict([(key, Ynew[key]/Y2norm+Ynew[key]-Nm[key]) for key in Ynew])).collect()
-########################################
+    #print YothersRDD.join(NothersRDD).mapValues(lambda ( (Ynew, Others), (Nm, Others_cp ) ): dict([(key, Ynew[key]/Y2norm+Ynew[key]-Nm[key]) for key in Ynew])).collect()
+    if not lean:
+        Y2norm = L2norm(YothersRDD)
+    else:
+        Y2norm = None
     return (YothersRDD, Y2norm)
     
 def pnorm_proxop(N, p, rho, epsilon):
     """Solve prox operator for vector N and p-norm, i.e., the follwoing problem, via bisection
            min_Z \|Z\|_p + rho/2 * \|Z-N\|_2^2
     """
+    def ga_arg_nonzero(Nr, p, Z_norm):
+        if Nr<=0:
+            return 0.0
+        else:
+            return Z_norm * Nr**((2-p)/(p-1))
+        
 
     t_start = time.time()
 
@@ -143,14 +161,14 @@ def pnorm_proxop(N, p, rho, epsilon):
     error = epsilon + 1
     while error>epsilon:
         Z_norm = (Z_norm_L + Z_norm_U)/2
-        Z = N.mapValues(lambda (Nr, Nr_sign):  (Nr*solve_ga_bisection(Z_norm * Nr**((2-p)/(p-1)), p), Nr_sign)) 
+        Z = N.mapValues(lambda (Nr, Nr_sign):  (Nr*solve_ga_bisection(ga_arg_nonzero(Nr, p, Z_norm), p), Nr_sign)) 
         Z_norm_current = normp(Z, p)
         if Z_norm_current<Z_norm:
             Z_norm_U = Z_norm
         else:
             Z_norm_L = Z_norm
         error = (Z_norm_U-Z_norm_L)/N_norm
-     #   print "Error is %f, time is %f" %(error, time.time()-t_start)
+        print "Error is %f, time is %f" %(error, time.time()-t_start)
     Z = Z.mapValues(lambda (zi, zi_sign):zi*zi_sign/rho).cache()
     t_end = time.time()
     return Z, Z_norm, t_end-t_start     

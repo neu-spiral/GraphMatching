@@ -2,7 +2,7 @@ import sys,argparse
 import numpy as np
 from pyspark import SparkContext,SparkConf,StorageLevel
 from operator import add
-from helpers import safeWrite
+from helpers import safeWrite, NoneToEmpty, NoneToZero
 from preprocessor import readSnap
 from time import time
 
@@ -17,7 +17,8 @@ def get_neighborhood(graph, N, k):
     nodes = graph.flatMap(lambda (u, v): [u, v]).distinct()
     all_neighborhoods = nodes.map(lambda u: (u, [])).partitionBy(N).cache()
     all_neighborhoods = all_neighborhoods.leftOuterJoin(neighborhood1) \
-        .mapValues(lambda (list, val): list + [val])
+        .mapValues(lambda (List, val): (List, NoneToZero(val)) )\
+        .mapValues(lambda (List, val): List + [val])
 
     # keeps track of all the visited nodes for each node so far
     visited_nodes = graph.mapValues(lambda x: {x}).reduceByKey(lambda x, y: x.union(y)).cache()
@@ -32,18 +33,14 @@ def get_neighborhood(graph, N, k):
             .mapValues(lambda x: {x})\
             .reduceByKey(lambda x, y: x.union(y))\
             .leftOuterJoin(visited_nodes)\
+            .mapValues(lambda (set_current_k, set_visited_nodes): (set_current_k, NoneToEmpty(set_visited_nodes)))\
             .mapValues(lambda (set_current_k, set_visited_nodes): set_current_k - set_visited_nodes)\
             .flatMapValues(lambda x: x).cache()
 
         k_neighbors = current_k_edges.mapValues(lambda node2: 1) \
             .reduceByKey(add)
-        def convert_none2zero(val):
-            if val==None:
-                return 0.
-            else:
-                return val
         all_neighborhoods = all_neighborhoods.leftOuterJoin(k_neighbors) \
-            .mapValues(lambda (List, val): (List,convert_none2zero(val))).mapValues(lambda (List, val): List + [val]).cache()
+            .mapValues(lambda (List, val): (List,NoneToZero(val))).mapValues(lambda (List, val): List + [val]).cache()
 
         # updates visited nodes
         visited_nodes = current_k_edges.mapValues(lambda x: {x}).union(visited_nodes)\
@@ -193,7 +190,14 @@ if __name__ == "__main__":
     parser.add_argument('--max_iterations', type = int, default = 50, help = 'Maximum number of Iterations')
     parser.add_argument('--eps', type = float, default = 0.01, help = 'Desired accuracy/epsilon value')
     parser.add_argument('--fromSnap', action = 'store_true', help = 'Input file is from Snap')
-    parser.add_argument('--directed', action = 'store_true', help = 'Input file is directed')
+    
+
+
+    dirgroup = parser.add_mutually_exclusive_group(required=False)
+    dirgroup.add_argument('--undirected', dest='undirected', action='store_true',help='Treat inputs as undirected graphs; this is the default behavior.')
+    dirgroup.add_argument('--directed', dest='undirected', action='store_false',help='Treat inputs as directed graphs. Edge (i,j) does not imply existence of (j,i).')
+
+    parser.set_defaults(undirected=True)
 
     args = parser.parse_args()
 
@@ -201,15 +205,15 @@ if __name__ == "__main__":
     configuration.set('spark.default.parallelism', args.N)
     sc = SparkContext(appName='Characteristics', conf=configuration)
     sc.setLogLevel("ERROR")
-    sc.setCheckpointDir("checkpointdir")
     if args.fromSnap:
         graph = readSnap(args.graph, sc, minPartitions = args.N).partitionBy(args.N).cache()
 
     else:
         lines = sc.textFile(args.graph)
         graph = lines.map(eval).partitionBy(args.N).cache()
-    if args.directed:
-        graph = graph.flatMap(lambda (u, v): [(u, v), (v, u)]).partitionBy(args.N).cache()
+    #repeat edges if the graph is undirected 
+    if args.undirected:
+        graph = graph.flatMap(lambda (u, v): [(u, v), (v, u)]).distinct().partitionBy(args.N).cache()
 
     # returns the neighborhood sizes
     if args.mode == 'NH':

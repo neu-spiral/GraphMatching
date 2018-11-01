@@ -3,13 +3,14 @@ import sys,argparse,logging,datetime
 from pyspark import SparkContext,StorageLevel,SparkConf
 from LocalSolvers import SijGenerator
 from operator import add
-from helpers import swap,safeWrite,clearFile
+from helpers import swap,safeWrite,clearFile, NoneToZero
 
 def readSnap(file,sc,minPartitions=10):
     '''Read a file in a format used by SNAP'''
     return sc.textFile(file,minPartitions=minPartitions)\
-                .filter(lambda x: '#' not in x)\
-		.map(lambda x: x.split())
+                .filter(lambda x: '#' not in x and '%' not in x)\
+		.map(lambda x: x.split())\
+                .filter(lambda edge:len(edge)==2)
 		#.map(lambda (u,v):(hash(u),hash(v)))
 	
 
@@ -24,8 +25,9 @@ def WL(graph,logger,depth = 10,numPartitions=10,storage_level=StorageLevel.MEMOR
 	oldcolors = colors
 	outsig = graphin.join(colors).values().groupByKey(numPartitions).mapValues(lambda x:tuple(sorted(list(x))))
 	insig = graphout.join(colors).values().groupByKey(numPartitions).mapValues(lambda x:tuple(sorted(list(x))))
-        colors = outsig.join(insig).mapValues(hash).persist(storage_level)
-        oldcolors.unpersist()
+      #  colors = outsig.join(insig).mapValues(hash).persist(storage_level)
+        colors = outsig.fullOuterJoin(insig).mapValues(lambda (c1, c2): (NoneToZero(c1), NoneToZero(c2))).mapValues(hash).persist(storage_level)
+        #oldcolors.unpersist()
 	numcolors = colors.values().distinct().count()
 	logger.info("IT = "+str(i)+"\t#colors = "+str(numcolors))
     return colors
@@ -37,10 +39,56 @@ def degrees(graph,offset = 0,numPartitions=10):
     degrees = outdegrees.join(indegrees,numPartitions=numPartitions)
     return degrees
 
+def hashNodes(color):
+     '''Return an RDD where keys are mapped to {0,...,# of nodes-1}
+        Starting at i=0, it iteratively applies the following hashing function on each node (key):
+            h: Nodes * {0,...,# of nodes-1} -> {0,...,# of nodes-1},
+            h(v, i) = [hash(v) + i] % (# of nodes); if h(v, i) is not taken by another node, it assigns h(v,i) to v. 
+           Otherewise it increments i and continues the same procedure. 
+     '''
+     def h(v, i, M):
+          return (hash(v) + i) % M
+     M = color.count()
+     nodes = color.keys().collect()
+     permutate = {}
+     reserved = []
+     for v in nodes:
+         for i in range(M):
+             new_i =   h(v, i, M)
+             if new_i not in reserved:
+                  permutate[v] = new_i
+                  reserved.append(new_i)
+                  break 
+     return color.map(lambda (key, val): (permutate[v], val)).persist(storage_level)
+     
+    
 def matchColors(color1,color2,numPartitions=10):
     '''Constructs constraint graph by matching classes indicated by colors.
     '''
+    color1 = hashNodes(color1)
+    print color1.take(10)
+    color2 = hashNodes(color2)
+     
     return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions)
+
+
+
+    #Note that two graphs do not necessarily have the same node numbers or node names
+   # N1 = color1.count()
+   # N2 = color2.count()
+   # N_common = max(N1, N2)
+
+   # color1 = color1.map(lambda (i, color_i): (hash(i)%N_common, color_i)).distinct()
+   # color2 = color2.map(lambda (i, color_i): (hash(i)%N_common, color_i)).distinct()
+    
+    #Make sure that the graphs have the same node numbers. 
+   # jointColors = color1.join(color2, numPartitions=numPartitions)
+   # color1 = jointColors.mapValues(lambda (colori_1, colori_2): colori_1)
+   # color2 = jointColors.mapValues(lambda (colori_1, colori_2): colori_2)
+     
+   # return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions)
+         
+    
 
 
 
@@ -160,6 +208,7 @@ if __name__=="__main__":
 	    color1 = WL(graph1,logger,depth=args.k,numPartitions=args.N) 
 	    color2 = WL(graph2,logger,depth=args.k,numPartitions=args.N) 
 	    G = matchColors(color1,color2, numPartitions=args.N).persist(storage_level) 	
+            print color2.take(1), color1.take(1)
         if args.outputconstraintfile:
             logger.info('Write  constraints')
             safeWrite(G, args.outputconstraintfile, args.driverdump)

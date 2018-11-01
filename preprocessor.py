@@ -40,15 +40,16 @@ def degrees(graph,offset = 0,numPartitions=10):
     return degrees
 
 def hashNodes(color):
-     '''Return an RDD where keys are mapped to {0,...,# of nodes-1}
+     '''Return an RDD where each key is mapped to a unique number in {0,...,# of nodes-1}.
+
         Starting at i=0, it iteratively applies the following hashing function on each node (key):
             h: Nodes * {0,...,# of nodes-1} -> {0,...,# of nodes-1},
-            h(v, i) = [hash(v) + i] % (# of nodes); if h(v, i) is not taken by another node, it assigns h(v,i) to v. 
-           Otherewise it increments i and continues the same procedure. 
+            h(v, i) = [hash(v) + i] % (# of nodes); until h(v, i) is not taken by another node. It assigns h(v,i) to v. 
      '''
      def h(v, i, M):
           return (hash(v) + i) % M
      M = color.count()
+     
      nodes = color.keys().collect()
      permutate = {}
      reserved = []
@@ -59,16 +60,14 @@ def hashNodes(color):
                   permutate[v] = new_i
                   reserved.append(new_i)
                   break 
-     return color.map(lambda (key, val): (permutate[v], val)).persist(storage_level)
+     return color.map(lambda (key, val): (permutate[key], val)).persist(storage_level)
      
     
 def matchColors(color1,color2,numPartitions=10):
     '''Constructs constraint graph by matching classes indicated by colors.
     '''
     color1 = hashNodes(color1)
-    print color1.take(10)
     color2 = hashNodes(color2)
-     
     return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions)
 
 
@@ -208,7 +207,6 @@ if __name__=="__main__":
 	    color1 = WL(graph1,logger,depth=args.k,numPartitions=args.N) 
 	    color2 = WL(graph2,logger,depth=args.k,numPartitions=args.N) 
 	    G = matchColors(color1,color2, numPartitions=args.N).persist(storage_level) 	
-            print color2.take(1), color1.take(1)
         if args.outputconstraintfile:
             logger.info('Write  constraints')
             safeWrite(G, args.outputconstraintfile, args.driverdump)

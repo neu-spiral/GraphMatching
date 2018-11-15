@@ -20,7 +20,8 @@ from pyspark import SparkContext,StorageLevel,SparkConf
 
 def SijGenerator(graph1,graph2,G,N):
     #Compute S_ij^1 and S_ij^2
-    Sij1 = G.join(graph1).map(lambda (k,(j,i)): ((i,j),(k,j))).groupByKey().flatMapValues(list).partitionBy(N)
+   # Sij1 = G.join(graph1).map(lambda (k,(j,i)): ((i,j),(k,j))).groupByKey().flatMapValues(list).partitionBy(N)
+    Sij1 = G.join(graph1.map(swap) ).map(lambda (k,(j,i)): ((i,j),(k,j))).groupByKey().flatMapValues(list).partitionBy(N)
     Sij2 = G.map(swap).join(graph2).map(lambda (k,(i,j)): ((i,j),(i,k))).groupByKey().flatMapValues(list).partitionBy(N) 
 
     #Do an "outer join"

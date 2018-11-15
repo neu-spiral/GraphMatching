@@ -1,6 +1,7 @@
 import numpy as np
 import sys,argparse,logging,datetime
 from pyspark import SparkContext,StorageLevel,SparkConf
+from Characteristics import get_neighborhood
 from LocalSolvers import SijGenerator
 from operator import add
 from helpers import swap,safeWrite,clearFile, NoneToZero
@@ -66,8 +67,6 @@ def hashNodes(color):
 def matchColors(color1,color2,numPartitions=10):
     '''Constructs constraint graph by matching classes indicated by colors.
     '''
-    color1 = hashNodes(color1)
-    color2 = hashNodes(color2)
     return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions)
 
 
@@ -108,7 +107,7 @@ if __name__=="__main__":
     parser.add_argument('graph1',help = 'File containing first graph')
     parser.add_argument('graph2',help = 'File containing second graph')
     parser.add_argument('--outputconstraintfile',default='None',help ="File for constraint graph. ")
-    parser.add_argument('--constraintmethod',default='degree', help='Constraint generation method',choices=['degree','all','WL'])
+    parser.add_argument('--constraintmethod',default='degree', help='Constraint generation method',choices=['degree','all','WL','neighbor'])
     parser.add_argument('--debug',default='INFO', help='Debug level',choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument('--N',default=8,type=int, help='Number of partitions')
     parser.add_argument('--degreedistance',default=0,type=int, help='Distance of degrees')
@@ -121,11 +120,15 @@ if __name__=="__main__":
     parser.add_argument('--checkpointdir',default='checkpointdir',type=str,help='Directory to be used for checkpointing')
     parser.add_argument('--logfile',default='preprocessor.log',help='Log file')
 
+    parser.add_argument('--equalize',action='store_true', help='If passed makes sure that the graphs have the same number of nodes by randomly ignoring some  nodes from the larger graph.')
+
 
     dumpgroup = parser.add_mutually_exclusive_group(required=False)
     dumpgroup.add_argument('--driverdump',dest='driverdump',action='store_true', help='Collect output and dump it from driver')
     dumpgroup.add_argument('--slavedump',dest='driverdump',action='store_false', help='Dump output directly from slaves')
     parser.set_defaults(driverdump=False)
+
+
 
     snap_group = parser.add_mutually_exclusive_group(required=False)
     snap_group.add_argument('--fromsnap', dest='fromsnap', action='store_true',help="Inputfiles are from SNAP")
@@ -189,6 +192,17 @@ if __name__=="__main__":
     if args.undirected:
         graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
 	graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
+ 
+    #make sure that graphs have the same node numbers
+    if args.equalize:
+        n1 = graph1.flatMap(lambda (u,v):[u,v]).distinct().count()
+        n2 = graph2.flatMap(lambda (u,v):[u,v]).distinct().count()
+        if n1>n2:
+            graph1 = graph1.filter(lambda (u,v): eval(u)<n2 and eval(v)<n2).cache()
+        else:
+            graph2  = graph2.filter(lambda (u,v): eval(u)<n1 and eval(v)<n1).cache()
+        print graph1.flatMap(lambda (u,v):[u,v]).distinct().count(), graph2.flatMap(lambda (u,v):[u,v]).distinct().count() 
+    
 	
 
     #Generate/Read Constraints
@@ -207,6 +221,10 @@ if __name__=="__main__":
 	    color1 = WL(graph1,logger,depth=args.k,numPartitions=args.N) 
 	    color2 = WL(graph2,logger,depth=args.k,numPartitions=args.N) 
 	    G = matchColors(color1,color2, numPartitions=args.N).persist(storage_level) 	
+        elif args.constraintmethod == 'neighbor':
+            neighbors1 = get_neighborhood(graph1, args.N, args.k).mapValues(lambda l:hash( tuple(l) ) )
+            neighbors2 = get_neighborhood(graph2, args.N, args.k).mapValues(lambda l:hash( tuple(l) ) )
+            G = matchColors(neighbors1, neighbors2, numPartitions=args.N).persist(storage_level)
         if args.outputconstraintfile:
             logger.info('Write  constraints')
             safeWrite(G, args.outputconstraintfile, args.driverdump)

@@ -286,7 +286,8 @@ if __name__=="__main__":
 
        	Zstats ={}
 	if (not (args.silent or args.lean)) or (args.silent and forceComp):
-	
+
+
            #Z feasibility
 	   Zstats['POS'] = testPositivity(ZRDD)
 	   Zstats['RSUMS'] = tuple(testSimplexCondition(ZRDD))

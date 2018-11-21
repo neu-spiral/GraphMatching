@@ -144,6 +144,19 @@ def projectToPositiveSimplex(x,r):
         B = [ i  for i in y.keys() if y[i]<0.0 ]    
     return y
 
+def adaptRho(rho, primalresid, dualresid, mu=10., tau=2.):
+    '''
+        Adapt rho based in ADMM as follwos (see He et. el.):
+            (1) if primalresid > mu*dualresid: rho_new = tau * rho
+            (2) if dualresid > mu*primalresid: rho_new = rho/tau 
+            (3) o.w.: rho_new = rho
+    ''' 
+    if primalresid > mu*dualresid:
+        return tau * rho
+    elif dualresid > mu*primalresid:
+        return rho/tau 
+    else:
+        return rho 
 
 def softThresholding(x, k):
     """Implementation of the soft thresholding operator defined as:

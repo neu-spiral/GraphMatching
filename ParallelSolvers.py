@@ -85,6 +85,12 @@ class ParallelSolver():
     def getVars(self, rho):
         """Return the primal variables associated with this RDD. To be used to compute the new consensus variable"""
         return self.PrimalDualRDD.flatMap(lambda (partitionId,(solver,P,Phi,stats)): [ (key, ( rho*( P[key]+Phi[key]), rho))    for key in P ]  )
+    def computeDualResidual(self, ZRDDjoinedOldZRDD):
+        '''Return the squared norm of the dual residual, which is computed as:
+                S = A^TB(Z^(k+1)-Z^(k))
+        '''
+        ZRDDjoinedOldZRDD = ZRDDjoinedOldZRDD.mapValues(lambda (z, zOld): (z-zOld)**2)
+        return np.sqrt( self.varsToPartitions.join(ZRDDjoinedOldZRDD).mapValues(lambda (splitID, deltaZ): deltaZ).values().reduce(add) )
 
 class ParallelSolverPnorm(ParallelSolver):
     """This class is inheritted from ParallelSolver, it updates P and Y vriables for a general p-norm solver via inner ADMM."""

@@ -4,7 +4,7 @@ from pyspark import SparkContext,StorageLevel,SparkConf
 from operator import add,and_
 from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver,LocalLSSolver, LocalL1Solver_Old
 from ParallelSolvers import ParallelSolver, ParallelSolver1norm, ParallelSolverPnorm, ParallelSolver2norm
-from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero
+from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero, adaptRho
 #from helpers_GCP import safeWrite_GCP,upload_blob, download_blob
 from debug import logger,dumpPPhiRDD,dumpBasic
 from pprint import pformat
@@ -102,6 +102,8 @@ if __name__=="__main__":
     parser.set_defaults(driverdump=False)
     parser.add_argument('--driverdump',dest='driverdump',action='store_true', help='Dump final output Z after first collecting it at the driver, as opposed to directly from workers.')
 
+    parser.set_defaults(adaptrho=False)
+    parser.add_argument('--adaptrho',dest='adaptrho',action='store_true', help='Adapt the rho parameter throught ADMM iterations.')
 
     args = parser.parse_args()
 
@@ -238,6 +240,10 @@ if __name__=="__main__":
     end_timing = time.time()
     logger.info("Data input and preprocessing done in %f seconds, starting main ADMM iterations " % ( end_timing -start_timing))
 
+   #initialize rho parameters (if adaptrho not passed these value stay fixed).
+    rhoP = args.rhoP
+    rhoQ = args.rhoQ
+    rhoT = args.rhoT
     start_timing = time.time()	
     last_time = start_timing
     dump_time = 0.
@@ -248,28 +254,28 @@ if __name__=="__main__":
         forceComp = iteration==args.maxiter-1
 
         if not args.silent or forceComp:
-            (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, args.rhoQ, checkpoint=chckpnt, forceComp=forceComp)
+            (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, rhoQ, checkpoint=chckpnt, forceComp=forceComp)
             logger.info("Iteration %d row (Q/Xi) stats: %s" % (iteration,QXi.logstats())) 
-            (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt, forceComp=forceComp)
+            (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, rhoT, checkpoint=chckpnt, forceComp=forceComp)
             logger.info("Iteration %d column (T/Psi) stats: %s" % (iteration,TPsi.logstats())) 
             if ParallelSolverClass == ParallelSolver:
-                (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, forceComp=forceComp)
+                (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, forceComp=forceComp)
             else:
-                (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-06, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
+                (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, residual_tol=1.e-06, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
             logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
         else:
-            QXi.joinAndAdapt(ZRDD, args.alpha, args.rhoQ, checkpoint=chckpnt, forceComp=forceComp)
-            TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt, forceComp=forceComp)
+            QXi.joinAndAdapt(ZRDD, args.alpha, rhoQ, checkpoint=chckpnt, forceComp=forceComp)
+            TPsi.joinAndAdapt(ZRDD, args.alpha, rhoT, checkpoint=chckpnt, forceComp=forceComp)
             if ParallelSolverClass == ParallelSolver:
-                PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, forceComp=forceComp)
+                PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, forceComp=forceComp)
             else:
-                PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
+                PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
 
       
 	oldZ = ZRDD
-	rowvars = QXi.getVars(args.rhoQ)
-        columnvars = TPsi.getVars(args.rhoT)
-	localvars = PPhi.getVars(args.rhoP)
+	rowvars = QXi.getVars(rhoQ)
+        columnvars = TPsi.getVars(rhoT)
+	localvars = PPhi.getVars(rhoP)
 	allvars = localvars.union(rowvars).union(columnvars)
 
 	if DEBUG:
@@ -294,7 +300,19 @@ if __name__=="__main__":
 	   Zstats['CSUMS'] = tuple(testSimplexCondition(ZRDD,dir='column'))
 
            #Evaluate dual residuals:
-	   dualresidual = np.sqrt(ZRDD.join(oldZ,numPartitions=args.N).values().map(lambda (v1,v2):(v1-v2)**2).reduce(add)) 
+           ZRDDjoinedOldZRDD = ZRDD.join(oldZ,numPartitions=args.N).cache()
+           dualresidualP = rhoP * PPhi.computeDualResidual(ZRDDjoinedOldZRDD)
+           dualresidualQ = rhoQ * QXi.computeDualResidual(ZRDDjoinedOldZRDD)
+           dualresidualT = rhoT * TPsi.computeDualResidual(ZRDDjoinedOldZRDD)
+           dualresidual = dualresidualP+dualresidualQ+dualresidualT
+
+           #Adapt rhos
+           if args.adaptrho:
+               rhoP = adaptRho(rhoP, oldPrimalResidualP, dualresidualP)
+               rhoQ = adaptRho(rhoQ, oldPrimalResidualQ, dualresidualQ)
+               rhoT = adaptRho(rhoT, oldPrimalResidualT, dualresidualT)
+
+	   #dualresidual = np.sqrt(ZRDD.join(oldZ,numPartitions=args.N).values().map(lambda (v1,v2):(v1-v2)**2).reduce(add)) 
 	   Zstats['DRES'] = dualresidual
 
 	   #Store primal residuals:

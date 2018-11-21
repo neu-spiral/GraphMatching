@@ -174,7 +174,6 @@ if __name__=="__main__":
     else:
 	objectives = sc.textFile(args.objectivefile).map(lambda x:eval(x)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
 	uniformweight= 1.0/float(args.problemsize)
-	#Create local primal and dual variables  
 
 
 
@@ -188,6 +187,7 @@ if __name__=="__main__":
         #Load the previous trace file
         fTrace = open(args.outputfile, 'r')
         (prevArgs, trace) = pickle.load(fTrace)
+        fTrace.close()
        # numb_of_prev_iters = len(trace)
         numb_of_prev_iters = max(trace.keys())+1
 

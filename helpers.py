@@ -39,6 +39,12 @@ def writeMat2File(fname, A):
             elif j==n-1:
                 fP.write(str(A[i,j])+'\n')          
     fP.close()
+
+def Loop2Zero(u , v):
+    if u == v:
+       return (u, 0)
+    else:
+       return (u, 1)
     
         
 def NoneToZero(x):

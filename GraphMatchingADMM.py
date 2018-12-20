@@ -96,7 +96,7 @@ if __name__=="__main__":
     parser.set_defaults(leanInner=False)
    
 
-    parser.set_defaults(directed=False)
+    parser.set_defaults(directed=True)
     parser.add_argument('--directed', dest='directed', action='store_true',help='Input graphs are directed, i.e., (a,b) does not imply the presense of (b,a).')
 
     parser.set_defaults(driverdump=False)
@@ -271,6 +271,18 @@ if __name__=="__main__":
             else:
                 PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
 
+       #Check row/col sums:
+       # QRDD = QXi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(key, Primal[key]) for key in Primal] ).values()
+       # Qsums = tuple(testSimplexCondition(QRDD) )
+       # logger.info("Iteration %d Q row sums are: Min %s Max %s " % ((iteration,)+ Qsums ) )
+       # logger.info("Iteration %d Q posivity is %f" %(iteration, testPositivity(QRDD) ) )
+       
+      #  TRDD = TPsi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(swap(key), Primal[key]) for key in Primal] ).values()
+      #  Tsums = tuple(testSimplexCondition(TRDD) )
+      #  logger.info("Iteration %d T col sums are: Min %s Max %s " % ((iteration,)+ Tsums ) )
+      #  logger.info("Iteration %d T posivity is %f" %(iteration, testPositivity(TRDD) ) )
+        
+
       
 	oldZ = ZRDD
 	rowvars = QXi.getVars(rhoQ)
@@ -370,7 +382,7 @@ if __name__=="__main__":
 		#log.info("ZRDD is "+str(ZRDD.collect()))
                 dump_end_time = time.time()
                 dump_time = dump_end_time - dump_st_time
- 
+      
 	#oldZ.unpersist()
 	
      

@@ -4,7 +4,7 @@ from pyspark import SparkContext,StorageLevel,SparkConf
 from Characteristics import get_neighborhood
 from LocalSolvers import SijGenerator
 from operator import add
-from helpers import swap,safeWrite,clearFile, NoneToZero
+from helpers import swap,safeWrite,clearFile, NoneToZero, Loop2Zero
 
 def readSnap(file,sc,minPartitions=10):
     '''Read a file in a format used by SNAP'''
@@ -35,8 +35,8 @@ def WL(graph,logger,depth = 10,numPartitions=10,storage_level=StorageLevel.MEMOR
     
 
 def degrees(graph,offset = 0,numPartitions=10):
-    outdegrees=graph.map(lambda (u,v):(u,1)).reduceByKey(add,numPartitions=numPartitions).flatMapValues(lambda x: [ x+i for i in range(-offset,+offset+1) ])
-    indegrees=graph.map(lambda (u,v):(v,1)).reduceByKey(add,numPartitions=numPartitions).flatMapValues(lambda x: [ x+i for i in range(-offset,+offset+1) ])
+    outdegrees=graph.map(lambda (u,v): Loop2Zero(u, v) ).reduceByKey(add,numPartitions=numPartitions).flatMapValues(lambda x: [ x+i for i in range(-offset,+offset+1) ])
+    indegrees=graph.map(lambda (u,v): Loop2Zero(u, v) ).reduceByKey(add,numPartitions=numPartitions).flatMapValues(lambda x: [ x+i for i in range(-offset,+offset+1) ])
     degrees = outdegrees.join(indegrees,numPartitions=numPartitions)
     return degrees
 
@@ -149,7 +149,7 @@ if __name__=="__main__":
     configuration = SparkConf()
     configuration.set('spark.default.parallelism',args.N)
     sc = SparkContext(appName='Parallel Graph Preprocessing', conf=configuration)
-    sc.setCheckpointDir(args.checkpointdir)
+   # sc.setCheckpointDir(args.checkpointdir)
  
 
     level = "logging."+args.debug
@@ -188,21 +188,34 @@ if __name__=="__main__":
         graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
 
 
-    #repeat edges if graph is undirected
-    if args.undirected:
-        graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
-	graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
  
     #make sure that graphs have the same node numbers
     if args.equalize:
+        #Add dummy nodes to the smaller graph (i.e., the graph with lower number of nodes).
         n1 = graph1.flatMap(lambda (u,v):[u,v]).distinct().count()
         n2 = graph2.flatMap(lambda (u,v):[u,v]).distinct().count()
-        if n1>n2:
-            graph1 = graph1.filter(lambda (u,v): eval(u)<n2 and eval(v)<n2).cache()
+
+        n_max = max(n1, n2)
+        n_min = min(n1, n2)
+
+
+    #    dummyNodes = [(str(dum), str(node_i) ) for dum in range(n_min, n_max) for node_i in range(n_max)]
+        dummyNodes = [(str(dum), str(dum) ) for dum in range(n_min, n_max)]
+        dummyNodes = sc.parallelize(dummyNodes).partitionBy(args.N)
+        
+        if n1<n2:
+           # graph1 = graph1.filter(lambda (u,v): eval(u)<n2 and eval(v)<n2).cache()
+            graph1 = graph1.union(dummyNodes).partitionBy(args.N).cache()
         else:
-            graph2  = graph2.filter(lambda (u,v): eval(u)<n1 and eval(v)<n1).cache()
-        print graph1.flatMap(lambda (u,v):[u,v]).distinct().count(), graph2.flatMap(lambda (u,v):[u,v]).distinct().count() 
+            graph2 = graph2.union(dummyNodes).partitionBy(args.N).cache()
+           # graph2  = graph2.filter(lambda (u,v): eval(u)<n1 and eval(v)<n1).cache()
     
+     #repeat edges if graph is undirected
+    if args.undirected:
+        graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
+        graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
+
+    print graph1.flatMap(lambda (u,v):[u,v]).distinct().count(), graph2.flatMap(lambda (u,v):[u,v]).distinct().count()
 	
 
     #Generate/Read Constraints
@@ -225,6 +238,10 @@ if __name__=="__main__":
             neighbors1 = get_neighborhood(graph1, args.N, args.k).mapValues(lambda l:hash( tuple(l) ) )
             neighbors2 = get_neighborhood(graph2, args.N, args.k).mapValues(lambda l:hash( tuple(l) ) )
             G = matchColors(neighbors1, neighbors2, numPartitions=args.N).persist(storage_level)
+        if args.equalize:
+            idnetityMap  = [(str(node), str(node)) for node  in range(n_max)]
+            idnetityMap = sc.parallelize(idnetityMap).partitionBy(args.N).cache()
+            G = G.union(idnetityMap).distinct()
         if args.outputconstraintfile:
             logger.info('Write  constraints')
             safeWrite(G, args.outputconstraintfile, args.driverdump)

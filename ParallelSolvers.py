@@ -61,7 +61,7 @@ class ParallelSolver():
         if checkpoint:
             self.PrimalDualRDD.localCheckpoint()
         ##Unpersisit commented for now because running time increases.
-       # toUnpersist.unpersist()
+        #toUnpersist.unpersist()
   
         if not self.lean or forceComp:
 	    return (oldPrimalResidual,oldObjValue)

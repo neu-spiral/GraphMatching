@@ -184,7 +184,6 @@ def General_LASSO(D, y, rho):
 
 
         t_leave = LeaveTimes(D_B, D_minusB, D_minusB_sqrd_psudoinv, y, D_B_times_sgn, B_S, trasnslate_itoj_B)
-        print  lambda_k
         #Find the next hitting or leaving time
         status, coord, lambda_k = next_kink(t_hit, t_leave, lambda_k)
         if status=='hit':
@@ -217,7 +216,6 @@ def General_LASSO(D, y, rho):
         u[i] = sgn_i * rho
 
     u = np.matrix(u)
-    print u , eval_dual(u, D, y)
     sol = y- D.transpose()*u
     return sol
     
@@ -275,7 +273,6 @@ def General_LASSO_test(D, y, rho):
             t_plus = a_i/DEN_plus
             t_minus = a_i/DEN_minus
          
-            print t_minus, t_plus, lambda_k
             if t_minus<0 and t_plus>=0:
                 t_hit[coordinate_i] = t_plus
             elif t_minus>=0 and t_plus<0:
@@ -395,7 +392,6 @@ def General_LASSO_test(D, y, rho):
         if lambda_k< rho:
             break
         #u_hat = u_hat_minusB(lambda_k)
-        print lambda_k,t_leave,t_hit
         B_S = update_boundary_set(B_S, status, coord, sgn_coord)
         k = k+1
     sol = np.zeros((N,1))
@@ -691,7 +687,6 @@ class LocalL1Solver(LocalSolver):
         stats = {}
         localval = self.evaluate(newp)
         stats['pobj'] = localval
-        print localval, np.linalg.norm(self.D*sol,1)
         if zbar!= None:
            rhoerr = rho*sum( (pow((zbar[key]-newp[key]),2)  for key in newp ) )
            stats['rhoerr'] = rhoerr

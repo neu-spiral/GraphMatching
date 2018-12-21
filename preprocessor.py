@@ -70,7 +70,7 @@ def hashNodes(color):
 def matchColors(color1,color2,numPartitions=10):
     '''Constructs constraint graph by matching classes indicated by colors.
     '''
-    return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions)
+    return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().distinct().partitionBy(numPartitions)
 
 
 
@@ -232,7 +232,7 @@ if __name__=="__main__":
             while True:
                 
 	        degree1=degrees(graph1,offset=offset,numPartitions=args.N).persist(storage_level)
-	        degree2=degrees(graph2,offset=args.offset,numPartitions=args.N).persist(storage_level)
+	        degree2=degrees(graph2,offset=offset,numPartitions=args.N).persist(storage_level)
 	        G = matchColors(degree1,degree2,numPartitions=args.N).persist(storage_level)	
                 
                

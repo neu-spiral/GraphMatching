@@ -1,5 +1,8 @@
 import numpy as np
 import sys,argparse,logging,datetime
+import networkx.algorithms.matching as mm
+import networkx as nx
+
 from pyspark import SparkContext,StorageLevel,SparkConf
 from Characteristics import get_neighborhood
 from LocalSolvers import SijGenerator
@@ -215,7 +218,7 @@ if __name__=="__main__":
         graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
         graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
 
-    print graph1.flatMap(lambda (u,v):[u,v]).distinct().count(), graph2.flatMap(lambda (u,v):[u,v]).distinct().count()
+    numb_Nodes =  graph1.flatMap(lambda (u,v):[u,v]).distinct().count()#, graph2.flatMap(lambda (u,v):[u,v]).distinct().count()
 	
 
     #Generate/Read Constraints
@@ -224,11 +227,29 @@ if __name__=="__main__":
         if args.constraintmethod == 'all':
             G = cartesianProduct(graph1,graph2).persist(storage_level)
         elif args.constraintmethod == 'degree':
-	    degree1=degrees(graph1,offset=args.degreedistance,numPartitions=args.N).persist(storage_level)
-	    #degree1.checkpoint()
-	    degree2=degrees(graph2,numPartitions=args.N).persist(storage_level)
-	    #degree1.checkpoint()
-	    G = matchColors(degree1,degree2,numPartitions=args.N).persist(storage_level)	
+            offset = 0
+            logger.info("Running for offset %d" %offset)
+            while True:
+                
+	        degree1=degrees(graph1,offset=offset,numPartitions=args.N).persist(storage_level)
+	        degree2=degrees(graph2,offset=args.offset,numPartitions=args.N).persist(storage_level)
+	        G = matchColors(degree1,degree2,numPartitions=args.N).persist(storage_level)	
+                
+               
+                G_collected = G.collect()
+                bipartG = nx.Graph()                
+                for (i,j) in G_collected:
+                    bipartG.add_edge("GA"+i, "GB"+j)
+                maxG = mm.maximal_matching(bipartG)
+                coveredNodes = set()
+                for (i,j) in maxG:
+                    coveredNodes.add(i)
+                logger.info("Number of the covered nodes is:  %d" %len(coveredNodes))
+                if numb_Nodes == len(coveredNodes):
+                    break
+                offset = offset + 1
+        
+                
 	    #G.checkpoint()
         elif args.constraintmethod == 'WL':
 	    color1 = WL(graph1,logger,depth=args.k,numPartitions=args.N) 
@@ -238,10 +259,10 @@ if __name__=="__main__":
             neighbors1 = get_neighborhood(graph1, args.N, args.k).mapValues(lambda l:hash( tuple(l) ) )
             neighbors2 = get_neighborhood(graph2, args.N, args.k).mapValues(lambda l:hash( tuple(l) ) )
             G = matchColors(neighbors1, neighbors2, numPartitions=args.N).persist(storage_level)
-        if args.equalize:
-            idnetityMap  = [(str(node), str(node)) for node  in range(n_max)]
-            idnetityMap = sc.parallelize(idnetityMap).partitionBy(args.N).cache()
-            G = G.union(idnetityMap).distinct()
+    #    if args.equalize:
+    #        idnetityMap  = [(str(node), str(node)) for node  in range(n_max)]
+    #        idnetityMap = sc.parallelize(idnetityMap).partitionBy(args.N).cache()
+    #        G = G.union(idnetityMap).distinct()
         if args.outputconstraintfile:
             logger.info('Write  constraints')
             safeWrite(G, args.outputconstraintfile, args.driverdump)

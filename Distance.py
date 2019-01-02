@@ -8,12 +8,26 @@ from time import time
 def euclidean_dist(attr1, attr2):
     return np.sqrt(np.sum((attr1 - attr2)**2))
 
-def distance(characteristics1, characteristics2, constraints=None, N=20):
+def distance(characteristics1, characteristics2, constraints=None, N=20, Equalize=False):
     """Takes rdds of all the attributes of two different graphs and computes the distance
     between each node related by a bipartite constraint graph"""
 
     characteristics1 = characteristics1.mapValues(lambda attributes_list: np.array(attributes_list))
     characteristics2 = characteristics2.mapValues(lambda attributes_list: np.array(attributes_list))
+    if Equalize:
+        n1 = characteristics1.count()
+        n2 = characteristics2.count()
+        
+        charactrosticLen = characteristics1.values().map(lambda attr: len(attr)).take(1)[0]
+        n_min = min(n1, n2)
+        n_max = max(n1, n2)
+        dummy = [(str(node), np.array( [0.]*charactrosticLen )) for node in range(n_min, n_max)]
+        dummy = sc.parallelize(dummy).partitionBy(N).cache()
+        if n1<n2:
+            characteristics1 = characteristics1.union(dummy).cache()
+        else:
+            characteristics2 = characteristics2.union(dummy).cache()
+            
 
     if constraints is None:
         distances = characteristics1.cartesian(characteristics2).map(lambda ((n1, attr1), (n2, attr2)):((n1, n2), euclidean_dist(attr1, attr2)))\
@@ -43,6 +57,7 @@ if __name__ == "__main__":
                               'one match per line, with each match represented as a tuple of the form: '
                               '(graph1_node, graph2_node).', default=None)
     parser.add_argument('--time_outputfile', default = None, help = 'file to store runtime')
+    parser.add_argument('--equalize',action='store_true', help='If passed makes sure that the graphs have the same number of nodes by randomly ignoring some  nodes from the larger graph.')
     parser.add_argument('--graphName', default = None, help = 'name of graph for runtime file')
     parser.add_argument('--N',type=int, default=20, help = 'Level of Parallelism')
     args = parser.parse_args()
@@ -60,9 +75,8 @@ if __name__ == "__main__":
     characteristics2 = sc.textFile(args.chars2).map(eval).partitionBy(args.N).cache()
 
     start_time = time()
-    distance = distance(characteristics1, characteristics2, constraints, args.N)
+    distance = distance(characteristics1=characteristics1, characteristics2=characteristics2,constraints=constraints, N=args.N, Equalize=args.equalize)
     pairs = float(distance.count())
-    print(distance.values().reduce(add)/pairs)
     tot_time = time() - start_time
 
     safeWrite(distance, args.outputfile)

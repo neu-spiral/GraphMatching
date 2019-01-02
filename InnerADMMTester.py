@@ -5,10 +5,10 @@ from LocalSolvers import LocalL1Solver, LocalRowProjectionSolver, LocalL1Solver_
 from ParallelSolvers import ParallelSolver, ParallelSolverPnorm, ParallelSolver1norm, ParallelSolver2norm
 from pyspark import SparkContext, StorageLevel
 from debug import logger
-from helpers import clearFile, writeMat2File, identityHash
+from helpers import clearFile, writeMat2File, identityHash, safeWrite
 import numpy as np
 from debug import logger 
-from helpers_GCP import upload_blob, safeWrite_GCP, download_blob
+#from helpers_GCP import upload_blob, safeWrite_GCP, download_blob
 def norm_p(Y, p):
     "Compute p-norm of the vector Y"
     return ( sum([abs(float(y))**p for y in Y]))**(1./p)
@@ -34,6 +34,9 @@ if __name__=="__main__":
     parser.add_argument('--initfile', default=None, type=str, help='File that stores the prev. values of P and Y variables.')
     parser.add_argument('--tracefile', default=None, type=str, help="File storing trace")
     parser.add_argument('--RDDfile',  type=str, help='File to store the values of P and Y variables.')
+    parser.add_argument('--PYfolder', default="/home/armin_mrm93", type=str, help="Folder storing the vectorized variables")
+    parser.add_argument('--tol', default=1e-03,type=float,help='Residual tolerance, if residuals smaller than this value stop the algorithm.')
+    parser.add_argument('--GCP',action='store_true', help='Pass if running on  Google Cloud Platform')
      
     parser.add_argument('--bucketname',type=str,default='armin-bucket',help='Bucket name for storing RDDs omn Google Cloud Platform, pass if running pn the platform')
     args = parser.parse_args()
@@ -89,17 +92,19 @@ if __name__=="__main__":
     
    
     G1G2 = args.G.split('/')[-1]
-    writeMat2File('/home/armin_mrm93/D%s' %G1G2, D_mat)
-    writeMat2File('/home/armin_mrm93/Zbar%s' %G1G2, Z_vec-Phi_vec)
+    writeMat2File('%s/D%s' %(args.PYfolder, G1G2), D_mat)
+    writeMat2File('%s/Zbar%s' %(args.PYfolder, G1G2), Z_vec-Phi_vec)
     D_name = "outputZs_matrix/D%s" %G1G2
     Zbar_name = "outputZs_matrix/Zbar%s" %G1G2
-    upload_blob('armin-bucket', '/home/armin_mrm93/D%s' %G1G2, D_name)
-    upload_blob('armin-bucket', '/home/armin_mrm93/Zbar%s' %G1G2, Zbar_name)
+    if args.GCP:
+        upload_blob('armin-bucket', '/home/armin_mrm93/D%s' %G1G2, D_name)
+        upload_blob('armin-bucket', '/home/armin_mrm93/Zbar%s' %G1G2, Zbar_name)
 
 
     if args.initfile!= None:
-        file_name = 'profiling/InnerADMM/' + args.tracefile.split('/')[-1]
-        download_blob(args.bucketname, file_name,args.tracefile )
+        if args.GCP:
+            file_name = 'profiling/InnerADMM/' + args.tracefile.split('/')[-1]
+            download_blob(args.bucketname, file_name,args.tracefile )
         fp = open(args.tracefile, 'r')
         (args_old, trace) = pickle.load(fp)
         prev_iters = max( trace.keys()) + 1
@@ -107,7 +112,7 @@ if __name__=="__main__":
     else:    
         trace = {}
         prev_iters = 0
-    new_trace = RDDSolver_cls.joinAndAdapt(ZRDD = ZRDD, alpha = args.alpha, rho = args.rho, maxiters=args.maxiters, logger=logger)
+    new_trace = RDDSolver_cls.joinAndAdapt(ZRDD = ZRDD, alpha = args.alpha, rho = args.rho, maxiters=args.maxiters, logger=logger, residual_tol=args.tol)
 
     if prev_iters>0:
         for key in new_trace:
@@ -116,16 +121,20 @@ if __name__=="__main__":
     else:
         trace = new_trace 
     #Save the trace
-    with open(args.tracefile,'w') as f:
+    with open(args.tracefile,'wb') as f:
         pickle.dump((args,trace),f)
 
     #Upload the trace
-    file_name = 'profiling/InnerADMM/' + args.tracefile.split('/')[-1]
-    upload_blob(args.bucketname, args.tracefile, file_name)    
+    if args.GCP:
+        file_name = 'profiling/InnerADMM/' + args.tracefile.split('/')[-1]
+        upload_blob(args.bucketname, args.tracefile, file_name)    
     
 
     #Save the variables 
-    safeWrite_GCP(RDDSolver_cls.PrimalDualRDD,args.RDDfile,args.bucketname)
+    if args.GCP:
+        safeWrite_GCP(RDDSolver_cls.PrimalDualRDD,args.RDDfile,args.bucketname)
+    else:
+        safeWrite(RDDSolver_cls.PrimalDualRDD,args.RDDfile)
 
     (splitID, (solver_args, P, Y, Phi, Upsilon, stats) ) = RDDSolver_cls.PrimalDualRDD.collect()[0]
     Y_vec  = np.matrix( np.zeros((pi,1)))
@@ -140,6 +149,7 @@ if __name__=="__main__":
     Grad_P = args.rho * (P_vec - (Z_vec-Phi_vec)) - D_mat.T * Upsilon_vec
     grad_Y = np.matrix( np.zeros((pi,1)))
     Y_norm = norm_p(Y_vec, args.p)
+  
     if Y_norm>0.0:
         for i in range(pi):
             grad_Y[i] = np.sign(float(Y_vec[i]))  * (abs(float(Y_vec[i]))/Y_norm)**(args.p-1.) + Upsilon_vec[i]
@@ -149,10 +159,11 @@ if __name__=="__main__":
    #Write P and Y
     Pfile = 'P%s_%s_p%0.1f' %(G1G2, args.ParallelSolver, args.p)
     Yfile = 'Y%s_%s_p%0.1f' %(G1G2, args.ParallelSolver, args.p)
-    writeMat2File('/home/armin_mrm93/%s' %Pfile, P_vec)
-    writeMat2File('/home/armin_mrm93/%s' %Yfile, Y_vec)
-    upload_blob('armin-bucket', '/home/armin_mrm93/%s' %Pfile, 'PY_vars/%s' %Pfile) 
-    upload_blob('armin-bucket', '/home/armin_mrm93/%s' %Yfile, 'PY_vars/%s' %Yfile) 
+    writeMat2File('%s/%s' %(args.PYfolder, Pfile), P_vec)
+    writeMat2File('%s/%s' %(args.PYfolder, Yfile), Y_vec)
+    if args.GCP:
+        upload_blob('armin-bucket', '/home/armin_mrm93/%s' %Pfile, 'PY_vars/%s' %Pfile) 
+        upload_blob('armin-bucket', '/home/armin_mrm93/%s' %Yfile, 'PY_vars/%s' %Yfile) 
    
    
 

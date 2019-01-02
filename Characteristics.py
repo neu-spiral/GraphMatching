@@ -2,8 +2,8 @@ import sys,argparse
 import numpy as np
 from pyspark import SparkContext,SparkConf,StorageLevel
 from operator import add
-from helpers import safeWrite, NoneToEmpty, NoneToZero
-from preprocessor import readSnap
+from helpers import safeWrite, NoneToEmpty, NoneToZero, readSnap
+#from preprocessor import readSnap
 from time import time
 
 def get_neighborhood(graph, N, k):
@@ -46,9 +46,9 @@ def get_neighborhood(graph, N, k):
         visited_nodes = current_k_edges.mapValues(lambda x: {x}).union(visited_nodes)\
             .reduceByKey(lambda set1, set2: set1.union(set2)).cache()
 
-    num_nodes = float(nodes.count())
-    print("average number of neighbors: ", all_neighborhoods.values().map(lambda nhList: np.array(nhList) / num_nodes)\
-          .reduce(lambda list1, list2: list1 + list2))
+    #num_nodes = float(nodes.count())
+    #print("average number of neighbors: ", all_neighborhoods.values().map(lambda nhList: np.array(nhList) / num_nodes)\
+    #      .reduce(lambda list1, list2: list1 + list2))
 
     return all_neighborhoods
 

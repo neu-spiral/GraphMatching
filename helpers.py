@@ -3,6 +3,13 @@ import os
 import shutil
 #from google.cloud import storage
 
+def readSnap(file,sc,minPartitions=10):
+    '''Read a file in a format used by SNAP'''
+    return sc.textFile(file,minPartitions=minPartitions)\
+                .filter(lambda x: '#' not in x and '%' not in x)\
+                .map(lambda x: x.split())\
+                .filter(lambda edge:len(edge)==2)
+                #.map(lambda (u,v):(hash(u),hash(v)))
     
 
 def readfile(fname):
@@ -32,6 +39,12 @@ def writeMat2File(fname, A):
             elif j==n-1:
                 fP.write(str(A[i,j])+'\n')          
     fP.close()
+
+def Loop2Zero(u , v):
+    if u == v:
+       return (u, 0)
+    else:
+       return (u, 1)
     
         
 def NoneToZero(x):
@@ -137,6 +150,19 @@ def projectToPositiveSimplex(x,r):
         B = [ i  for i in y.keys() if y[i]<0.0 ]    
     return y
 
+def adaptRho(rho, primalresid, dualresid, mu=10., tau=2.):
+    '''
+        Adapt rho based in ADMM as follwos (see He et. el.):
+            (1) if primalresid > mu*dualresid: rho_new = tau * rho
+            (2) if dualresid > mu*primalresid: rho_new = rho/tau 
+            (3) o.w.: rho_new = rho
+    ''' 
+    if primalresid > mu*dualresid:
+        return tau * rho
+    elif dualresid > mu*primalresid:
+        return rho/tau 
+    else:
+        return rho 
 
 def softThresholding(x, k):
     """Implementation of the soft thresholding operator defined as:

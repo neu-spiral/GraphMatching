@@ -4,8 +4,8 @@ from pyspark import SparkContext,StorageLevel,SparkConf
 from operator import add,and_
 from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver,LocalLSSolver, LocalL1Solver_Old
 from ParallelSolvers import ParallelSolver, ParallelSolver1norm, ParallelSolverPnorm, ParallelSolver2norm
-from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero
-from helpers_GCP import safeWrite_GCP,upload_blob, download_blob
+from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero, adaptRho
+#from helpers_GCP import safeWrite_GCP,upload_blob, download_blob
 from debug import logger,dumpPPhiRDD,dumpBasic
 from pprint import pformat
 import os
@@ -79,7 +79,7 @@ if __name__=="__main__":
     parser.add_argument('--checkpointdir',default='checkpointdir',type=str,help='Directory to be used for checkpointing')
     parser.add_argument('--initRDD',default=None, type=str, help='File name, where the RDDs are dumped.')
     parser.add_argument('--GCP',action='store_true', help='Pass if running on  Google Cloud Platform')
-    parser.add_argument('--bucketname',type=str,default='armin-bucket',help='Bucket name for storing RDDs omn Google Cloud Platform, pass if running pn the platform')
+    parser.add_argument('--bucketname',type=str,default='armin-bucket',help='Bucket name for storing RDDs on Google Cloud Platform, pass if running on GCP')
 
     parser.add_argument('--dumpRDDs', dest='dumpRDDs', action='store_true',help='Dump auxiliary RDDs beyond Z')
     parser.add_argument('--no-dumpRDDs', dest='dumpRDDs', action='store_false',help='Do not dump auxiliary RDDs beyond Z')
@@ -96,12 +96,14 @@ if __name__=="__main__":
     parser.set_defaults(leanInner=False)
    
 
-    parser.set_defaults(directed=False)
+    parser.set_defaults(directed=True)
     parser.add_argument('--directed', dest='directed', action='store_true',help='Input graphs are directed, i.e., (a,b) does not imply the presense of (b,a).')
 
     parser.set_defaults(driverdump=False)
     parser.add_argument('--driverdump',dest='driverdump',action='store_true', help='Dump final output Z after first collecting it at the driver, as opposed to directly from workers.')
 
+    parser.set_defaults(adaptrho=False)
+    parser.add_argument('--adaptrho',dest='adaptrho',action='store_true', help='Adapt the rho parameter throught ADMM iterations.')
 
     args = parser.parse_args()
 
@@ -111,6 +113,7 @@ if __name__=="__main__":
     configuration = SparkConf()
     configuration.set('spark.default.parallelism',args.N)
     sc = SparkContext(appName='Parallel Graph Matching with  %s  at %d iterations over %d partitions' % (args.solver,args.maxiter,args.N),conf=configuration)
+    #Setting checkpoint dir is nor reuired for localCheckpoint!?
     sc.setCheckpointDir(args.checkpointdir)
     
 
@@ -173,7 +176,6 @@ if __name__=="__main__":
     else:
 	objectives = sc.textFile(args.objectivefile).map(lambda x:eval(x)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
 	uniformweight= 1.0/float(args.problemsize)
-	#Create local primal and dual variables  
 
 
 
@@ -187,6 +189,7 @@ if __name__=="__main__":
         #Load the previous trace file
         fTrace = open(args.outputfile, 'r')
         (prevArgs, trace) = pickle.load(fTrace)
+        fTrace.close()
        # numb_of_prev_iters = len(trace)
         numb_of_prev_iters = max(trace.keys())+1
 
@@ -237,6 +240,10 @@ if __name__=="__main__":
     end_timing = time.time()
     logger.info("Data input and preprocessing done in %f seconds, starting main ADMM iterations " % ( end_timing -start_timing))
 
+   #initialize rho parameters (if adaptrho not passed these value stay fixed).
+    rhoP = args.rhoP
+    rhoQ = args.rhoQ
+    rhoT = args.rhoT
     start_timing = time.time()	
     last_time = start_timing
     dump_time = 0.
@@ -247,29 +254,40 @@ if __name__=="__main__":
         forceComp = iteration==args.maxiter-1
 
         if not args.silent or forceComp:
-            (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, args.rhoQ, checkpoint=chckpnt, forceComp=forceComp)
+            (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, rhoQ, checkpoint=chckpnt, forceComp=forceComp)
             logger.info("Iteration %d row (Q/Xi) stats: %s" % (iteration,QXi.logstats())) 
-            (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt, forceComp=forceComp)
-            TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt)
+            (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, rhoT, checkpoint=chckpnt, forceComp=forceComp)
             logger.info("Iteration %d column (T/Psi) stats: %s" % (iteration,TPsi.logstats())) 
             if ParallelSolverClass == ParallelSolver:
-                (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, forceComp=forceComp)
+                (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, forceComp=forceComp)
             else:
-                (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
+                (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, residual_tol=1.e-06, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
             logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
         else:
-            QXi.joinAndAdapt(ZRDD, args.alpha, args.rhoQ, checkpoint=chckpnt, forceComp=forceComp)
-            TPsi.joinAndAdapt(ZRDD, args.alpha, args.rhoT, checkpoint=chckpnt, forceComp=forceComp)
+            QXi.joinAndAdapt(ZRDD, args.alpha, rhoQ, checkpoint=chckpnt, forceComp=forceComp)
+            TPsi.joinAndAdapt(ZRDD, args.alpha, rhoT, checkpoint=chckpnt, forceComp=forceComp)
             if ParallelSolverClass == ParallelSolver:
-                PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, forceComp=forceComp)
+                PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, forceComp=forceComp)
             else:
-                PPhi.joinAndAdapt(ZRDD, args.alpha, args.rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
+                PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
+
+       #Check row/col sums:
+       # QRDD = QXi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(key, Primal[key]) for key in Primal] ).values()
+       # Qsums = tuple(testSimplexCondition(QRDD) )
+       # logger.info("Iteration %d Q row sums are: Min %s Max %s " % ((iteration,)+ Qsums ) )
+       # logger.info("Iteration %d Q posivity is %f" %(iteration, testPositivity(QRDD) ) )
+       
+      #  TRDD = TPsi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(swap(key), Primal[key]) for key in Primal] ).values()
+      #  Tsums = tuple(testSimplexCondition(TRDD) )
+      #  logger.info("Iteration %d T col sums are: Min %s Max %s " % ((iteration,)+ Tsums ) )
+      #  logger.info("Iteration %d T posivity is %f" %(iteration, testPositivity(TRDD) ) )
+        
 
       
 	oldZ = ZRDD
-	rowvars = QXi.getVars(args.rhoQ)
-        columnvars = TPsi.getVars(args.rhoT)
-	localvars = PPhi.getVars(args.rhoP)
+	rowvars = QXi.getVars(rhoQ)
+        columnvars = TPsi.getVars(rhoT)
+	localvars = PPhi.getVars(rhoP)
 	allvars = localvars.union(rowvars).union(columnvars)
 
 	if DEBUG:
@@ -286,14 +304,27 @@ if __name__=="__main__":
 
        	Zstats ={}
 	if (not (args.silent or args.lean)) or (args.silent and forceComp):
-	
+
+
            #Z feasibility
 	   Zstats['POS'] = testPositivity(ZRDD)
 	   Zstats['RSUMS'] = tuple(testSimplexCondition(ZRDD))
 	   Zstats['CSUMS'] = tuple(testSimplexCondition(ZRDD,dir='column'))
 
            #Evaluate dual residuals:
-	   dualresidual = np.sqrt(ZRDD.join(oldZ,numPartitions=args.N).values().map(lambda (v1,v2):(v1-v2)**2).reduce(add)) 
+           ZRDDjoinedOldZRDD = ZRDD.join(oldZ,numPartitions=args.N).cache()
+           dualresidualP = rhoP * PPhi.computeDualResidual(ZRDDjoinedOldZRDD)
+           dualresidualQ = rhoQ * QXi.computeDualResidual(ZRDDjoinedOldZRDD)
+           dualresidualT = rhoT * TPsi.computeDualResidual(ZRDDjoinedOldZRDD)
+           dualresidual = dualresidualP+dualresidualQ+dualresidualT
+
+           #Adapt rhos
+           if args.adaptrho:
+               rhoP = adaptRho(rhoP, oldPrimalResidualP, dualresidualP)
+               rhoQ = adaptRho(rhoQ, oldPrimalResidualQ, dualresidualQ)
+               rhoT = adaptRho(rhoT, oldPrimalResidualT, dualresidualT)
+
+	   #dualresidual = np.sqrt(ZRDD.join(oldZ,numPartitions=args.N).values().map(lambda (v1,v2):(v1-v2)**2).reduce(add)) 
 	   Zstats['DRES'] = dualresidual
 
 	   #Store primal residuals:
@@ -324,11 +355,11 @@ if __name__=="__main__":
         #if not (args.silent or args.lean):
         dump_time = 0.
         if not (args.silent):
-	    if iteration % args.dump_trace_freq == 0 and iteration>0:
+	    if (iteration % args.dump_trace_freq == 0 and iteration>0) or iteration == args.maxiter-1:
                 dump_st_time = time.time()
 		
                 if args.dumpRDDs:
-                    with open(args.outputfile+"_trace",'wb') as f:
+                    with open(args.outputfile,'wb') as f:
                         pickle.dump((args,trace),f)
                     if not args.GCP:
                         #If not running on GCP, save the RDDs and the trace. 
@@ -341,7 +372,7 @@ if __name__=="__main__":
                         outfile_name = 'profiling/GM/' + args.outputfile.split('/')[-1]
                         logfile_name = 'profiling/GM/' + args.logfile.split('/')[-1]
 
-                        upload_blob(args.bucketname, args.outputfile+"_trace", outfile_name)
+                        upload_blob(args.bucketname, args.outputfile, outfile_name)
                         upload_blob(args.bucketname, args.logfile, logfile_name)
                         safeWrite_GCP(ZRDD,args.outputfileZRDD+"_ZRDD",args.bucketname)
                         safeWrite_GCP(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.bucketname)
@@ -351,7 +382,7 @@ if __name__=="__main__":
 		#log.info("ZRDD is "+str(ZRDD.collect()))
                 dump_end_time = time.time()
                 dump_time = dump_end_time - dump_st_time
- 
+      
 	#oldZ.unpersist()
 	
      
@@ -359,25 +390,6 @@ if __name__=="__main__":
     logger.info("Finished ADMM iterations in %f seconds." % (end_timing-start_timing))
 
 
-    with open(args.outputfile+"_trace",'wb') as f:
-            pickle.dump((args,trace),f)
-    if not args.GCP:
-    #If not running on GCP, save the RDDs and the trace.  
-        safeWrite(ZRDD,args.outputfileZRDD+"_ZRDD",args.driverdump)
-        safeWrite(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.driverdump)
-        safeWrite(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.driverdump)
-        safeWrite(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.driverdump)
-    else:
-    #If running on GCP, upload the log and the trace to the bucket. Also, save RDDs on the bucket. 
-        outfile_name = 'profiling/GM/' + args.outputfile.split('/')[-1]
-        logfile_name = 'profiling/GM/' + args.logfile.split('/')[-1]
-
-        upload_blob(args.bucketname, args.outputfile+"_trace", outfile_name)
-        upload_blob(args.bucketname, args.logfile, logfile_name)
-        safeWrite_GCP(ZRDD,args.outputfileZRDD+"_ZRDD",args.bucketname)
-        safeWrite_GCP(PPhi.PrimalDualRDD,args.outputfileZRDD+"_PPhiRDD",args.bucketname)
-        safeWrite_GCP(QXi.PrimalDualRDD,args.outputfileZRDD+"_QXiRDD",args.bucketname)
-        safeWrite_GCP(TPsi.PrimalDualRDD,args.outputfileZRDD+"_TPsiRDD",args.bucketname)
     
 
     

@@ -127,6 +127,8 @@ def EuclidiannormOp(NothersRDD, rho, lean=False):
 
     N_norm = L2norm(NothersRDD)
     YothersRDD =  NothersRDD.mapValues(lambda (Nm, Others): (dict( [(key, EuclidianPO(Nm[key], 1./rho, N_norm)) for key in Nm] ), Others) ).cache()
+     #Test optimality
+    #print YothersRDD.join(NothersRDD).mapValues(lambda ( (Ynew, Others), (Nm, Others_cp ) ): dict([(key, Ynew[key]/Y2norm+Ynew[key]-Nm[key]) for key in Ynew])).collect()
     if not lean:
         Y2norm = L2norm(YothersRDD)
     else:

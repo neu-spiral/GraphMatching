@@ -14,7 +14,7 @@ def testPositivity(rdd):
     '''Test whether vals are positive
     '''
     def fun_test_positivity(val):
-        if val>0.0:
+        if val>=0.0:
             out = 1.
         else:
             out = 0.
@@ -54,7 +54,6 @@ if __name__=="__main__":
     parser.add_argument('--graph1',default=None,help = 'File containing first graph (optional).')
     parser.add_argument('--graph2',default=None,help = 'File containing second graph (optional).')
     parser.add_argument('--objectivefile',default=None,help="File containing pre-computed objectives. Graphs  need not be given if this argument is set.")
-    parser.add_argument('--linear_term',default=None,help="Linear term to be added in the objective")
     parser.add_argument('--problemsize',default=1000,type=int, help='Problem size. Used to initialize uniform allocation, needed when objectivefile is passed')
     parser.add_argument('--parallelSolver',default='ParallelSolver', choices=['ParallelSolver', 'ParallelSolver1norm', 'ParallelSolverPnorm', 'ParallelSolver2norm'],help='Parallel Solver')
     parser.add_argument('--solver',default='LocalLSSolver', help='Local Solver',choices=['LocalL1Solver','LocalL2Solver','FastLocalL2Solver','LocalColumnProjectionSolver','LocalRowProjectionSolver','LocalLSSolver','LocalL1Solver_Old'])
@@ -136,12 +135,12 @@ if __name__=="__main__":
     if not DEBUG:
         sc.setLogLevel("OFF")
 
-    has_linear = args.linear_term is not None
+    has_linear = args.distfile  is not None
     if not has_linear:
         oldLinObjective = 0.
 
     if args.distfile is not None:
-        D =  sc.textFile(args.distfile).map(eval).partitionBy(N)
+        D =  sc.textFile(args.distfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
     else:
         D = None
     
@@ -272,15 +271,15 @@ if __name__=="__main__":
                 PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
 
        #Check row/col sums:
-       # QRDD = QXi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(key, Primal[key]) for key in Primal] ).values()
-       # Qsums = tuple(testSimplexCondition(QRDD) )
-       # logger.info("Iteration %d Q row sums are: Min %s Max %s " % ((iteration,)+ Qsums ) )
-       # logger.info("Iteration %d Q posivity is %f" %(iteration, testPositivity(QRDD) ) )
+        QRDD = QXi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(key, Primal[key]) for key in Primal] ).values()
+        Qsums = tuple(testSimplexCondition(QRDD) )
+        logger.info("Iteration %d Q row sums are: Min %s Max %s " % ((iteration,)+ Qsums ) )
+        logger.info("Iteration %d Q posivity is %f" %(iteration, testPositivity(QRDD) ) )
        
-      #  TRDD = TPsi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(swap(key), Primal[key]) for key in Primal] ).values()
-      #  Tsums = tuple(testSimplexCondition(TRDD) )
-      #  logger.info("Iteration %d T col sums are: Min %s Max %s " % ((iteration,)+ Tsums ) )
-      #  logger.info("Iteration %d T posivity is %f" %(iteration, testPositivity(TRDD) ) )
+        TRDD = TPsi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(swap(key), Primal[key]) for key in Primal] ).values()
+        Tsums = tuple(testSimplexCondition(TRDD) )
+        logger.info("Iteration %d T col sums are: Min %s Max %s " % ((iteration,)+ Tsums ) )
+        logger.info("Iteration %d T posivity is %f" %(iteration, testPositivity(TRDD) ) )
         
 
       
@@ -323,6 +322,9 @@ if __name__=="__main__":
                rhoP = adaptRho(rhoP, oldPrimalResidualP, dualresidualP)
                rhoQ = adaptRho(rhoQ, oldPrimalResidualQ, dualresidualQ)
                rhoT = adaptRho(rhoT, oldPrimalResidualT, dualresidualT)
+
+           if has_linear:
+               oldLinObjective = oldObjQ 
 
 	   #dualresidual = np.sqrt(ZRDD.join(oldZ,numPartitions=args.N).values().map(lambda (v1,v2):(v1-v2)**2).reduce(add)) 
 	   Zstats['DRES'] = dualresidual

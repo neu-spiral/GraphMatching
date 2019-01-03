@@ -49,7 +49,7 @@ class ParallelSolver():
         ZtoPartitions = ZRDD.join(self.varsToPartitions,numPartitions=self.N).map(lambda (key,(z,splitIndex)): (splitIndex, (key,z))).partitionBy(self.N,partitionFunc=identityHash).groupByKey().mapValues(list).mapValues(dict)
         PrimalDualOldZ=self.PrimalDualRDD.join(ZtoPartitions,numPartitions=self.N)
 
-        if not self.lean or forceComp:
+        if not self.silent or forceComp:
             oldPrimalResidual = np.sqrt(PrimalDualOldZ.values().map(lambda ((solver,P,Phi,stats),Z):  sum( ( (P[key]-Z[key])**2    for key in Z) )    ).reduce(add))
             oldObjValue = PrimalDualOldZ.values().map(lambda ((solver,P,Phi,stats),Z): solver.evaluate(Z)).reduce(add)  #local solver should implement evaluate
 
@@ -63,7 +63,7 @@ class ParallelSolver():
         ##Unpersisit commented for now because running time increases.
         #toUnpersist.unpersist()
   
-        if not self.lean or forceComp:
+        if not self.silent or forceComp:
 	    return (oldPrimalResidual,oldObjValue)
         else:
             return None

@@ -218,8 +218,10 @@ if __name__=="__main__":
         graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
         graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
 
-    numb_Nodes =  graph1.flatMap(lambda (u,v):[u,v]).distinct().count()#, graph2.flatMap(lambda (u,v):[u,v]).distinct().count()
+    numb_Nodes1 =  graph1.flatMap(lambda (u,v):[u,v]).distinct().count()#, graph2.flatMap(lambda (u,v):[u,v]).distinct().count()
+    numb_Nodes2 =  graph2.flatMap(lambda (u,v):[u,v]).distinct().count()
 	
+    logger.info("The graphs sizes are %d and %d" %(numb_Nodes1, numb_Nodes2))
 
     #Generate/Read Constraints
     if  not args.inputconstraintfile:
@@ -227,10 +229,9 @@ if __name__=="__main__":
         if args.constraintmethod == 'all':
             G = cartesianProduct(graph1,graph2).persist(storage_level)
         elif args.constraintmethod == 'degree':
-            offset = 0
-            logger.info("Running for offset %d" %offset)
+            offset = args.degreedistance
             while True:
-                
+                logger.info("Running for offset %d" %offset)    
 	        degree1=degrees(graph1,offset=offset,numPartitions=args.N).persist(storage_level)
 	        degree2=degrees(graph2,offset=offset,numPartitions=args.N).persist(storage_level)
 	        G = matchColors(degree1,degree2,numPartitions=args.N).persist(storage_level)	
@@ -241,11 +242,9 @@ if __name__=="__main__":
                 for (i,j) in G_collected:
                     bipartG.add_edge("GA"+i, "GB"+j)
                 maxG = mm.maximal_matching(bipartG)
-                coveredNodes = set()
-                for (i,j) in maxG:
-                    coveredNodes.add(i)
-                logger.info("Number of the covered nodes is:  %d" %len(coveredNodes))
-                if numb_Nodes == len(coveredNodes):
+                coveredNodes = len(maxG)
+                logger.info("Number of the covered nodes is:  %d" %coveredNodes)
+                if numb_Nodes1 == coveredNodes:
                     break
                 offset = offset + 1
         

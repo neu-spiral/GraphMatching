@@ -271,15 +271,15 @@ if __name__=="__main__":
                 PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
 
        #Check row/col sums:
-        QRDD = QXi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(key, Primal[key]) for key in Primal] ).values()
-        Qsums = tuple(testSimplexCondition(QRDD) )
-        logger.info("Iteration %d Q row sums are: Min %s Max %s " % ((iteration,)+ Qsums ) )
-        logger.info("Iteration %d Q posivity is %f" %(iteration, testPositivity(QRDD) ) )
-       
-        TRDD = TPsi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(swap(key), Primal[key]) for key in Primal] ).values()
-        Tsums = tuple(testSimplexCondition(TRDD) )
-        logger.info("Iteration %d T col sums are: Min %s Max %s " % ((iteration,)+ Tsums ) )
-        logger.info("Iteration %d T posivity is %f" %(iteration, testPositivity(TRDD) ) )
+       # QRDD = QXi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(key, Primal[key]) for key in Primal] ).values()
+       # Qsums = tuple(testSimplexCondition(QRDD) )
+       # logger.info("Iteration %d Q row sums are: Min %s Max %s " % ((iteration,)+ Qsums ) )
+       # logger.info("Iteration %d Q posivity is %f" %(iteration, testPositivity(QRDD) ) )
+       #
+       # TRDD = TPsi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(swap(key), Primal[key]) for key in Primal] ).values()
+       # Tsums = tuple(testSimplexCondition(TRDD) )
+       # logger.info("Iteration %d T col sums are: Min %s Max %s " % ((iteration,)+ Tsums ) )
+       # logger.info("Iteration %d T posivity is %f" %(iteration, testPositivity(TRDD) ) )
         
 
       

@@ -1033,11 +1033,11 @@ class LocalRowProjectionSolver(LocalSolver):
             stats = dict()
             D_local = dict()
 
-            for (edge,D_edge) in iterator:
-                row,column = edge
+            for (row, (column, d_rowcol)) in iterator:
+                edge = (row, column)
                 Primal[edge] = initvalue
                 Dual[edge] = 0.0
-                D_local[edge] = D_edge
+                D_local[edge] = d_rowcol
                 if row in objectives:
                     objectives[row].append(column)
                 else:
@@ -1051,8 +1051,9 @@ class LocalRowProjectionSolver(LocalSolver):
         if D == None: 
             createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualRowVariables)
         else:
-            D = D.rightOuterJoin(partitioned.map(lambda pair: (pair, 1))).mapValues(lambda (val, dummy ): NoneToZero(val)).partitionBy(N)
-            createVariables = D.mapPartitionsWithIndex(createLocalPrimalandDualRowVariables_withD)
+            D = D.rightOuterJoin(partitioned.map(lambda pair: (pair, 1)).partitionBy(N) ).mapValues(lambda (val, dummy ): NoneToZero(val))
+            partitioned = D.map(lambda ((row, col), d_rowcol): (row, (col, d_rowcol)) ).partitionBy(N)
+            createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualRowVariables_withD)
 
         PrimalDualRDD = createVariables.partitionBy(N,partitionFunc=identityHash).cache()
         return PrimalDualRDD
@@ -1101,6 +1102,8 @@ class LocalRowProjectionSolver(LocalSolver):
         """ Evaluate objective. This returns True if z is feasible, False otherwise. 
 
         """
+        if self.D_local != None:
+            return self.evaluateLinear(z)
         for row in self.objectives:       
             for col in self.objectives[row]:
                 if z[(row,col)]<0.0 or z[(row,col)]>1.0:
@@ -1109,6 +1112,14 @@ class LocalRowProjectionSolver(LocalSolver):
             if totsum > 1.0:
                     return False
         return True
+    def evaluateLinear(self, z):
+        """Evaluate the linear term in case it is passed.
+    
+        """
+        res = 0.0
+        for edge in self.D_local:
+            res += self.D_local[edge]*z[edge]
+        return res
 
 class LocalColumnProjectionSolver(LocalSolver):
     """ A class for projecting rows to the simplex."""
@@ -1144,12 +1155,11 @@ class LocalColumnProjectionSolver(LocalSolver):
             stats = dict()
             D_local = dict()
 
-            for (edgeInv, D_edge) in iterator:
-                column,row = edgeInv
+            for (column, (row, d_rowcol)) in iterator:
                 edge = (row,column)
                 Primal[edge] = initvalue
                 Dual[edge] = 0.0
-                D_local[edge] = D_edge
+                D_local[edge] = d_rowcol
                 if column in objectives:
                     objectives[column].append(row)
                 else:
@@ -1164,9 +1174,10 @@ class LocalColumnProjectionSolver(LocalSolver):
             partitioned = G.map(swap).partitionBy(N)
             createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualColumnVariables)
         else:
-            D = D.rightOuterJoin(G.map(lambda pair: (pair, 1))).mapValues(lambda (val, dummy ): NoneToZero(val))\
-                .map(lambda ((row, col), val): ((col, row), val)).partitionBy(N)
-            createVariables = D.mapPartitionsWithIndex(createLocalPrimalandDualRowVariables_withD)
+            partitioned = D.rightOuterJoin(G.map(lambda pair: (pair, 1))).mapValues(lambda (val, dummy ): NoneToZero(val))\
+                .map(lambda ((row, col), val): (col, (row, val))).partitionBy(N)
+          #  D = D.partitionBy(N, partitionFunc=lambda rowcol: rowcol[0])
+            createVariables = partitioned.mapPartitionsWithIndex(createLocalPrimalandDualColumnVariables_withD)
         PrimalDualRDD = createVariables.partitionBy(N,partitionFunc=identityHash).cache()
         return PrimalDualRDD
     def __init__(self, objectives,rho=None,D_local=None, lambda_linear=1.0):

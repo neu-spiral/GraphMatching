@@ -188,7 +188,7 @@ if __name__ == "__main__":
     parser.add_argument('--N', type = int, default = 20, help = 'Level of Parallelism')
     parser.add_argument('--gamma',type = float, default = 0.15, help = 'Interpolation parameter')
     parser.add_argument('--max_iterations', type = int, default = 50, help = 'Maximum number of Iterations')
-    parser.add_argument('--eps', type = float, default = 0.01, help = 'Desired accuracy/epsilon value')
+    parser.add_argument('--eps', type = float, default = 0.001, help = 'Desired accuracy/epsilon value')
     parser.add_argument('--fromSnap', action = 'store_true', help = 'Input file is from Snap')
     
 

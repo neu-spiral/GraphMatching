@@ -1120,6 +1120,8 @@ class LocalRowProjectionSolver(LocalSolver):
         for edge in self.D_local:
             res += self.D_local[edge]*z[edge]
         return res
+    def __repr__(self):
+        return '(' + str(self.objectives) + ',' + str(self.rho) + ',' + str(self.D_local) + ',' + str(self.lambda_linear) + ')'
 
 class LocalColumnProjectionSolver(LocalSolver):
     """ A class for projecting rows to the simplex."""
@@ -1233,6 +1235,8 @@ class LocalColumnProjectionSolver(LocalSolver):
             if totsum > 1.0:
                     return False
         return True
+    def __repr__(self):
+        return '(' + str(self.objectives) + ',' + str(self.rho) + ',' + str(self.D_local) + ',' + str(self.lambda_linear) + ')'
 
 
 if __name__=="__main__":

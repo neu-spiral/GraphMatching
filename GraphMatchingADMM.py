@@ -36,7 +36,10 @@ def testSimplexCondition(rdd,dir='row'):
 
 def evalSolvers(cls_args, P_vals, Phi_vals, stats, dumped_cls):
     solvers_cls = pickle.loads(dumped_cls)
-    return solvers_cls(cls_args[0], cls_args[1]), P_vals, Phi_vals, stats
+    if len(cls_args) == 2:
+        return solvers_cls(cls_args[0], cls_args[1]), P_vals, Phi_vals, stats
+    elif len(cls_args) == 4:
+        return solvers_cls(cls_args[0], cls_args[1], cls_args[2], cls_args[3]), P_vals, Phi_vals, stats
 def evalSolversY(cls_args, P_vals, Y_vals, Phi_vals, Upsilon_vals, stats, dumped_cls, rho_inner):
     solvers_cls = pickle.loads(dumped_cls)
     return solvers_cls(cls_args[0], cls_args[1], rho_inner), P_vals, Y_vals, Phi_vals, Upsilon_vals, stats
@@ -357,7 +360,7 @@ if __name__=="__main__":
         #if not (args.silent or args.lean):
         dump_time = 0.
         if not (args.silent):
-	    if (iteration % args.dump_trace_freq == 0 and iteration>0) or iteration == args.maxiter-1:
+	    if iteration % args.dump_trace_freq == 1 or iteration == args.maxiter-1:
                 dump_st_time = time.time()
 		
                 if args.dumpRDDs:

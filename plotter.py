@@ -56,6 +56,7 @@ if __name__=='__main__':
 
     if myargs.labels:
 	labels = dict(zip(myargs.filenames,myargs.labels.split(',')))	
+        print labels
     else:
 	labels = dict(zip(myargs.filenames,myargs.filenames))	
 

@@ -71,6 +71,7 @@ def matchColors(color1,color2,numPartitions=10):
     '''Constructs constraint graph by matching classes indicated by colors.
     '''
     return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().distinct().partitionBy(numPartitions)
+#    return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions)
 
 
 
@@ -230,24 +231,27 @@ if __name__=="__main__":
             G = cartesianProduct(graph1,graph2).persist(storage_level)
         elif args.constraintmethod == 'degree':
             offset = args.degreedistance
-            while True:
-                logger.info("Running for offset %d" %offset)    
-	        degree1=degrees(graph1,offset=offset,numPartitions=args.N).persist(storage_level)
-	        degree2=degrees(graph2,offset=offset,numPartitions=args.N).persist(storage_level)
-	        G = matchColors(degree1,degree2,numPartitions=args.N).persist(storage_level)	
-                
+      #      while True:
+      #          logger.info("Running for offset %d" %offset)    
+      #          degree1=degrees(graph1,offset=offset,numPartitions=args.N).persist(storage_level)
+      #          degree2=degrees(graph2,offset=offset,numPartitions=args.N).persist(storage_level)
+      #          G = matchColors(degree1,degree2,numPartitions=args.N).persist(storage_level)	
+      #          
+      #         
+      #          G_collected = G.collect()
+      #          bipartG = nx.Graph()                
+      #          for (i,j) in G_collected:
+      #              bipartG.add_edge("GA"+i, "GB"+j)
+      #          maxG = mm.maximal_matching(bipartG)
+      #          coveredNodes = len(maxG)
+      #          logger.info("Number of the covered nodes is:  %d" %coveredNodes)
+      #          if numb_Nodes1 == coveredNodes:
+      #              break
+      #          offset = offset + 1
+            degree1=degrees(graph1,offset=offset,numPartitions=args.N).persist(storage_level)
+            degree2=degrees(graph2,offset=offset,numPartitions=args.N).persist(storage_level)
+            G = matchColors(degree1,degree2,numPartitions=args.N).persist(storage_level)  
                
-                G_collected = G.collect()
-                bipartG = nx.Graph()                
-                for (i,j) in G_collected:
-                    bipartG.add_edge("GA"+i, "GB"+j)
-                maxG = mm.maximal_matching(bipartG)
-                coveredNodes = len(maxG)
-                logger.info("Number of the covered nodes is:  %d" %coveredNodes)
-                if numb_Nodes1 == coveredNodes:
-                    break
-                offset = offset + 1
-        
                 
 	    #G.checkpoint()
         elif args.constraintmethod == 'WL':
@@ -262,6 +266,7 @@ if __name__=="__main__":
     #        idnetityMap  = [(str(node), str(node)) for node  in range(n_max)]
     #        idnetityMap = sc.parallelize(idnetityMap).partitionBy(args.N).cache()
     #        G = G.union(idnetityMap).distinct()
+        logger.info('Number of constraints is %d' %G.count())
         if args.outputconstraintfile:
             logger.info('Write  constraints')
             safeWrite(G, args.outputconstraintfile, args.driverdump)

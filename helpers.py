@@ -7,7 +7,7 @@ def readSnap(file,sc,minPartitions=10):
     '''Read a file in a format used by SNAP'''
     return sc.textFile(file,minPartitions=minPartitions)\
                 .filter(lambda x: '#' not in x and '%' not in x)\
-                .map(lambda x: x.split())\
+                .map(lambda x: tuple(x.split()))\
                 .filter(lambda edge:len(edge)==2)
                 #.map(lambda (u,v):(hash(u),hash(v)))
     

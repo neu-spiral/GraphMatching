@@ -37,10 +37,8 @@ def testSimplexCondition(rdd,dir='row'):
 def evalSolvers(cls_args, P_vals, Phi_vals, stats, dumped_cls):
     solvers_cls = pickle.loads(dumped_cls)
     if len(cls_args) == 2:
-        print "NOT has the lin"
         return solvers_cls(cls_args[0], cls_args[1]), P_vals, Phi_vals, stats
     elif len(cls_args) == 4:
-        print "has the lin"
         return solvers_cls(cls_args[0], cls_args[1], cls_args[2], cls_args[3]), P_vals, Phi_vals, stats
 def evalSolversY(cls_args, P_vals, Y_vals, Phi_vals, Upsilon_vals, stats, dumped_cls, rho_inner):
     solvers_cls = pickle.loads(dumped_cls)
@@ -110,6 +108,12 @@ if __name__=="__main__":
     parser.set_defaults(adaptrho=False)
     parser.add_argument('--adaptrho',dest='adaptrho',action='store_true', help='Adapt the rho parameter throught ADMM iterations.')
 
+
+    snap_group = parser.add_mutually_exclusive_group(required=False)
+    snap_group.add_argument('--fromsnap', dest='fromsnap', action='store_true',help="Inputfiles are from SNAP")
+    snap_group.add_argument('--notfromsnap', dest='fromsnap', action='store_false',help="Inputfiles are pre-formatted")
+    parser.set_defaults(fromsnap=True)
+
     args = parser.parse_args()
 
     SolverClass = eval(args.solver)	
@@ -120,8 +124,9 @@ if __name__=="__main__":
     sc = SparkContext(appName='Parallel Graph Matching with  %s  at %d iterations over %d partitions' % (args.solver,args.maxiter,args.N),conf=configuration)
     #Setting checkpoint dir is nor reuired for localCheckpoint!?
     sc.setCheckpointDir(args.checkpointdir)
-    
 
+
+    
 
     level = "logging."+args.debug
     if args.silent:
@@ -151,15 +156,22 @@ if __name__=="__main__":
         D = None
     
     #Read constraint graph
-    G = sc.textFile(args.constraintfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+    if not args.fromsnap:
+        G = sc.textFile(args.constraintfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+    else:
+        G = readSnap(args.constraintfile,sc,minPartitions=args.N)
 
 
 
 
     if not args.objectivefile:
         #Read Graphs		
-        graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval).partitionBy(args.N)
-        graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval).partitionBy(args.N)
+        if not args.fromsnap:
+            graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval).partitionBy(args.N)
+            graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval).partitionBy(args.N)
+        else:
+            graph1 = readSnap(args.graph1, sc, minPartitions=args.N)
+            graph2 = readSnap(args.graph2, sc, minPartitions=args.N)
 
 	#Extract nodes 
 	nodes1 = graph1.flatMap(lambda (u,v):[u,v]).distinct()

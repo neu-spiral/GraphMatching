@@ -4,7 +4,7 @@ from pyspark import SparkContext,StorageLevel,SparkConf
 from operator import add,and_
 from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver,LocalLSSolver, LocalL1Solver_Old
 from ParallelSolvers import ParallelSolver, ParallelSolver1norm, ParallelSolverPnorm, ParallelSolver2norm
-from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero, adaptRho
+from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero, adaptRho, readSnap
 from helpers_GCP import safeWrite_GCP,upload_blob, download_blob
 from debug import logger,dumpPPhiRDD,dumpBasic
 from pprint import pformat

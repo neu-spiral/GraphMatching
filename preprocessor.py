@@ -70,6 +70,7 @@ def hashNodes(color):
 def matchColors(color1,color2,numPartitions=10):
     '''Constructs constraint graph by matching classes indicated by colors.
     '''
+    #return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions).distinct()
     return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions).distinct()
 
 
@@ -264,6 +265,7 @@ if __name__=="__main__":
             G = G.union(idnetityMap).distinct()
         if args.outputconstraintfile:
             logger.info('Write  constraints')
+            logger.info('Number of constraints is %d' %G.count())
             safeWrite(G, args.outputconstraintfile, args.driverdump)
             #safeWrite(G,args.outputconstraintfile,args.driverdump)
     else:
@@ -273,6 +275,7 @@ if __name__=="__main__":
     if args.outputobjectivefile:
         logger.info('Generate objectives')
 	objectives = SijGenerator(graph1,graph2,G,args.N)
+        logger.info('Number of objectives is %d' %objectives.count() )
         logger.info('Write  objectives')
         safeWrite(objectives,args.outputobjectivefile,args.driverdump)
     

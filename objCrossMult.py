@@ -1,7 +1,17 @@
 import argparse
 import math
 from pyspark import SparkConf, SparkContext
+from helpers import swap 
 from operator import add
+
+
+def readSnap(file,sc,minPartitions=10):
+    '''Read a file in a format used by SNAP'''
+    return sc.textFile(file,minPartitions=minPartitions)\
+                .filter(lambda x: '#' not in x and '%' not in x)\
+                .map(lambda x: x.split())\
+                .filter(lambda edge:len(edge)==2)
+                #.map(lambda (u,v):(hash(u),hash(v)))
 
 def convertToNumber (tpl, m):
     """Encode the tuple of an objective pair to  an integer, as follows
@@ -16,35 +26,41 @@ def convertToNumber (tpl, m):
 def convertFromNumber (n):
     "Decode integer n back to the string"
     return n.to_bytes(math.ceil(n.bit_length() / 8), 'little').decode()
-def reOrdering_dict(G):
+def None2None(tupl):
+    l = []
+    if tupl[0] != None:
+        l.append(tupl[0])
+    if tupl[1] != None:
+        l.append(tupl[1])
+    return l
+
+def SijGenerator(graph1,graph2,G,N):
+    """Return the objcetives (Sij) and and  objectivesSqaured (Sij2), defined as follows:
+           Sij = RDD of the form (obj_id:VarList)
+           Sin2 = RDD of the form ((obj_id1, obj_id2): wieght_12), where wieght_12 is the number of common variables between obj_id1 and obj_id2, i.e., the size of the intersection of VarList1 and VarLit2.
     """
-        Assign integers [1,...,NUMBER_OF_OBJECTIVES] to the objectives, whcih are pairs of the form (v, u) and v and u are nodes of the graph.
-        Return a dictionary of the translations as well as its ineverse.
-    """
-    obj2int = {}
-    G = G.keys().collect()
-    val  = 1
-    for obj in G:
-        if obj not in obj2int:
-            obj2int[obj] = val
-            val += 1
-    int2obj = dict( [(obj2int[key], key) for key in obj2int])
-    return obj2int, int2obj     
+    #Compute S_ij^1 and S_ij^2
+    Sij1 = G.join(graph1.map(swap) ).map(lambda (k,(j,i)): ((i,j),(k,j))).partitionBy(N)
+    Sij2 = G.map(swap).join(graph2).map(lambda (k,(i,j)): ((i,j),(i,k))).partitionBy(N)
+
+    Sij = Sij1.fullOuterJoin(Sij2,N)
+    print Sij.mapValues(None2None).take(1)
+
+
+    return Sij
     
-def iter2choose(objList):
-    L = []
-    #i = 1
-    #objList = list(objList)
-    for obj1 in objList:
-        for obj2 in objList:
-            L.append( ((obj1, obj2), 1) )
-        #i = i+1
-    return L
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Objective postprocessor.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('G',help = 'File containing the objectives')
+    parser.add_argument('graph1',help = 'File containing the first graph')
+    parser.add_argument('graph2',help = 'File containing the second graph')
     parser.add_argument('outfile', help='The file to write the outputfile',type=str)
     parser.add_argument('--N', help='Number of partitions',type=int, default=10)
+  
+    snap_group = parser.add_mutually_exclusive_group(required=False)
+    snap_group.add_argument('--fromsnap', dest='fromsnap', action='store_true',help="Inputfiles are from SNAP")
+    snap_group.add_argument('--notfromsnap', dest='fromsnap', action='store_false',help="Inputfiles are pre-formatted")
+    parser.set_defaults(fromsnap=True)
     args = parser.parse_args()    
 
     configuration = SparkConf()
@@ -54,27 +70,19 @@ if __name__=="__main__":
 
     G = sc.textFile(args.G, minPartitions=args.N).map(eval).cache()
 
-    obj2int, int2obj = reOrdering_dict(G)
-    maxVal = G.keys().flatMap(lambda tpl: [eval(elem) for elem in tpl]).reduce(max) + 1
+    if args.fromsnap:
+        graph1 = readSnap(args.graph1,sc,minPartitions=args.N)
+        graph2 = readSnap(args.graph2,sc,minPartitions=args.N)
+
+    else:
+        graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
+        graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
 
 
-    Ginv = G.flatMap(lambda  (obj, (Rlist1, Rlist2)): [(var, obj) for var in Rlist1] +  [(var, obj) for var in Rlist2])
-    print Ginv.groupByKey().values().flatMap(iter2choose).count()
-    GmultG = Ginv.groupByKey().values().flatMap(iter2choose)\
-               .reduceByKey(add, args.N)
-    GmultG = GmultG.flatMap(lambda  ((obj1, obj2), weight):  [(obj1, (obj2, weight)), (obj2, (obj1, weight))]).groupByKey().mapValues(list)
-    GmultG_dict = dict( GmultG.collect() )
-    print len(GmultG_dict)
 
+    SijGenerator(graph1,graph2,G,args.N)
 
     #Write the obtained graph to a file
-    f  = open(args.outfile, 'w')
-    for i in range(1, len(obj2int)+1):
-        l = ""
-        for (obj, weight) in GmultG_dict[int2obj[i]]:
-            l += "%d %d " %(obj2int[obj], weight)
-        l += "\n"
-    f.close()
     
                
         

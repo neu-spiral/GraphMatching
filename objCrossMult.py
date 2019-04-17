@@ -35,22 +35,29 @@ def None2None(tupl):
     return l
 
 def SijGenerator(graph1,graph2,G,N):
-    """Return the objcetives (Sij) and and  objectivesSqaured (Sij2), defined as follows:
+    """Return the objcetives (Sij) and  variablesSqaured (Vij2), defined as follows:
            Sij = RDD of the form (obj_id:VarList)
-           Sin2 = RDD of the form ((obj_id1, obj_id2): wieght_12), where wieght_12 is the number of common variables between obj_id1 and obj_id2, i.e., the size of the intersection of VarList1 and VarLit2.
+           Vij2 = RDD of the form ((var1, var2): w12), where w12 is the number of objectives that depend on both var1 and var2.
     """
-    #Compute S_ij^1 and S_ij^2
+    #Compute the support of objectives 
     Sij1 = G.join(graph1.map(swap) ).map(lambda (k,(j,i)): ((i,j),(k,j))).partitionBy(N)
     Sij2 = G.map(swap).join(graph2).map(lambda (k,(i,j)): ((i,j),(i,k))).partitionBy(N)
 
+    #Objectives
     Sij = Sij1.fullOuterJoin(Sij2,N)
-    print Sij.mapValues(None2None).take(1)
+    
+    print Sij.join(Sij).count()
+    Vij2 = Sij.join(Sij).filter(lambda (key, (var1, var2)):var1 != var2)\
+              .map(lambda (obj, var_pair): (var_pair, 1))\
+              .reduceByKey(add, N)
+    print Vij2.count() 
+    
 
 
     return Sij
     
 if __name__=="__main__":
-    parser = argparse.ArgumentParser(description = 'Objective postprocessor.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(description = 'Module to create objectives and objectives_squared.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('G',help = 'File containing the objectives')
     parser.add_argument('graph1',help = 'File containing the first graph')
     parser.add_argument('graph2',help = 'File containing the second graph')
@@ -66,7 +73,7 @@ if __name__=="__main__":
     configuration = SparkConf()
     configuration.set('spark.default.parallelism',args.N)
     sc = SparkContext(appName='Parallel Graph Preprocessing', conf=configuration)
-    sc.setLogLevel('OFF')
+    #sc.setLogLevel('OFF')
 
     G = sc.textFile(args.G, minPartitions=args.N).map(eval).cache()
 

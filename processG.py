@@ -4,6 +4,7 @@ import networkx as nx
 from networkx.readwrite import node_link_data
 import json
 import numpy as np
+from pyspark import SparkContext, SparkConf
 
 #Macros
 N_WALKS=50
@@ -59,19 +60,44 @@ def run_random_walks(G, nodes, num_walks=N_WALKS):
                 if curr_node != node:
                     pairs.append((node,curr_node))
                 curr_node = next_node
-        if count % 1000 == 0:
-            print("Done walks for", count, "nodes")
+        #if count % 1000 == 0:
+    print("Done walks for", count, "nodes")
     return pairs
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description = 'Graph Preprocessor .',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('graph',help = 'File containing first graph') 
-    parser.add_argument('prefix',help = 'File to write the networkx formatted graoh.')
+    parser.add_argument('prefix',help = 'File to write the networkx formatted graph.')
+    parser.add_argument('--feat',default=None,help = 'JSON file storing features.')
+    parser.add_argument('--attr',default=None,help = 'File storing attributes.')
     args = parser.parse_args()
+
+    configuration = SparkConf()
+    configuration.set('spark.default.parallelism',20)
+    sc = SparkContext(appName='Parallel Graph Preprocessing', conf=configuration)
     
     G = nx.Graph()
     attrs = {}
     id_map = {}
     cls_map = {}
+
+    #Processing classification lables
+    if args.feat != None:
+        with open(args.feat, 'r') as cls_file:
+            cls_all = json.load(cls_file)
+            cls_map = dict([(eval(node), cls_all[node][77:79])  for node in cls_all] )
+
+    #Processing features
+    if args.attr != None:
+        attrs_dict = dict(sc.textFile(args.attr).map(eval).collect())
+        feats = []
+        order = []
+        for node_id in attrs_dict:
+             feats.append( attrs_dict[node_id])  
+             order.append(eval(node_id))
+        feats = np.array(feats)
+        feats  = feats[order]
+            
+          
     with open(args.graph) as Gfile:
         for l in Gfile:
             (u, v) = l.split()
@@ -80,12 +106,18 @@ if __name__ == "__main__":
             G.add_edge(u, v)
             if u not in attrs:
                 attrs[u] = {}
-                cls_map[u] = 1
+                if args.feat == None:
+                    cls_map[u] = 1
                 id_map[u] = int(u)
             if v not in attrs:
                 attrs[v] = {}
-                cls_map[v] = 1
+                if args.feat == None:
+                    cls_map[v] = 1
                 id_map[v] = int(v)
+
+
+    print "Number of nodes and edges are %d %d" %(len(G.nodes), len(G.edges()) )
+    #Writing attributes
     for u in attrs:
         if random.random() < 0.7:
             attrs[u] = {'val':True, 'test':False}
@@ -111,6 +143,7 @@ if __name__ == "__main__":
         json.dump(id_map, outFile)
     with open(args.prefix + '-walks.txt', 'w') as outFile:
         outFile.write("\n".join([str(p[0]) + "\t" + str(p[1]) for p in pairs]))
+    np.save(args.prefix + '-feats', feats)
        
    
 

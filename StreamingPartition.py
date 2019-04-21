@@ -1,7 +1,7 @@
 import argparse
 import math
 from pyspark import SparkConf, SparkContext
-from helpers import swap 
+from helpers import swap, identityHash
 from operator import add
 
 
@@ -72,6 +72,7 @@ def streamPartition(biGraph,K,N=100,c=lambda x:x^2):
 
      partition = {}
      partitionSizes =  dict([(part,0) for part in range(K)])
+     cnt = 0
      for i in L:
          gain = dict([(part,0) for part in range(K)])
          neighbors = invGraph.join(
@@ -89,14 +90,28 @@ def streamPartition(biGraph,K,N=100,c=lambda x:x^2):
          (opt_part,val) = max(gain.iteritems(), key=lambda (part,val):val)
          partition[i] = opt_part
          partitionSizes[opt_part] += 1           
-
+         cnt += 1
+         if cnt % 20 ==1:
+             print "Done assigining for %d nodes" %cnt  
      return partition
+def partition2RDD(partition, sc):
+    """
+        Given partitioning as partition, return the RDD.
+    """
+    numParts = len(set([partition[node] for node in partition]) )
+    return sc.paralelize([(partition[node], node) for node in partition)]).partitionBy(numParts, partitionFunc=identityHash)
+def partitionOtherSide(biGraph, partition):
+    """
+        Gievn partitioning for L, generate partitioning for R.
+    """
+    
+    
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'Module to create objectives and objectives_squared.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('G',help = 'File containing the objectives')
-    parser.add_argument('graph1',help = 'File containing the first graph')
-    parser.add_argument('graph2',help = 'File containing the second graph')
+    #parser.add_argument('graph1',help = 'File containing the first graph')
+    #parser.add_argument('graph2',help = 'File containing the second graph')
     parser.add_argument('outfile', help='The file to write the outputfile',type=str)
     parser.add_argument('--N', help='Number of partitions',type=int, default=10)
   
@@ -109,21 +124,21 @@ if __name__=="__main__":
     configuration = SparkConf()
     configuration.set('spark.default.parallelism',args.N)
     sc = SparkContext(appName='Parallel Graph Preprocessing', conf=configuration)
-    #sc.setLogLevel('OFF')
+    sc.setLogLevel('OFF')
 
     G = sc.textFile(args.G, minPartitions=args.N).map(eval).cache()
 
-    if args.fromsnap:
-        graph1 = readSnap(args.graph1,sc,minPartitions=args.N)
-        graph2 = readSnap(args.graph2,sc,minPartitions=args.N)
+   # if args.fromsnap:
+   #     graph1 = readSnap(args.graph1,sc,minPartitions=args.N)
+   #     graph2 = readSnap(args.graph2,sc,minPartitions=args.N)
 
-    else:
-        graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
-        graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
+    #else:
+    #    graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
+    #    graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
 
 
-
-    SijGenerator(graph1,graph2,G,args.N)
+    partitions = streamPartition(G, 100, 100)
+   # SijGenerator(graph1,graph2,G,args.N)
 
     #Write the obtained graph to a file
     

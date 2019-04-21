@@ -80,19 +80,24 @@ if __name__ == "__main__":
     id_map = {}
     cls_map = {}
 
-    #Processing classification lables
+    #Processing exogenous features
     if args.feat != None:
         with open(args.feat, 'r') as cls_file:
-            cls_all = json.load(cls_file)
-            cls_map = dict([(eval(node), cls_all[node][77:79])  for node in cls_all] )
+            all_exogenous_feats = json.load(cls_file)
+            exogenous_dict = dict([(node, all_exogenous_feats[node][77:79])  for node in all_exogenous_feats] )
 
-    #Processing features
+    #Processing attributes
     if args.attr != None:
         attrs_dict = dict(sc.textFile(args.attr).map(eval).collect())
+        print attrs_dict.keys()
         feats = []
         order = []
         for node_id in attrs_dict:
-             feats.append( attrs_dict[node_id])  
+             attrs_node = attrs_dict[node_id]
+             if args.feat:
+                 #Append exogenous features to the attributes 
+                 attrs_node += exogenous_dict[node_id]
+             feats.append(attrs_node)  
              order.append(eval(node_id))
         feats = np.array(feats)
         feats  = feats[order]
@@ -106,13 +111,13 @@ if __name__ == "__main__":
             G.add_edge(u, v)
             if u not in attrs:
                 attrs[u] = {}
-                if args.feat == None:
-                    cls_map[u] = 1
+                #Dummy class labels
+                cls_map[u] = 1
                 id_map[u] = int(u)
             if v not in attrs:
                 attrs[v] = {}
-                if args.feat == None:
-                    cls_map[v] = 1
+                #Dummy class labels 
+                cls_map[v] = 1
                 id_map[v] = int(v)
 
 

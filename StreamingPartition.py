@@ -1,4 +1,5 @@
 import argparse
+import json
 import math
 from pyspark import SparkConf, SparkContext
 from helpers import swap, identityHash
@@ -46,11 +47,9 @@ def SijGenerator(graph1,graph2,G,N):
     #Objectives
     Sij = Sij1.fullOuterJoin(Sij2,N)
     
-    print Sij.join(Sij).count()
-    Vij2 = Sij.join(Sij).filter(lambda (key, (var1, var2)):var1 != var2)\
-              .map(lambda (obj, var_pair): (var_pair, 1))\
-              .reduceByKey(add, N)
-    print Vij2.count() 
+    #Vij2 = Sij.join(Sij).filter(lambda (key, (var1, var2)):var1 != var2)\
+    #          .map(lambda (obj, var_pair): (var_pair, 1))\
+    #          .reduceByKey(add, N)
     
 
 
@@ -99,11 +98,31 @@ def partition2RDD(partition, sc):
         Given partitioning as partition, return the RDD.
     """
     numParts = len(set([partition[node] for node in partition]) )
-    return sc.paralelize([(partition[node], node) for node in partition)]).partitionBy(numParts, partitionFunc=identityHash)
-def partitionOtherSide(biGraph, partition):
+    return sc.paralelize([(partition[node], node) for node in partition]).partitionBy(numParts, partitionFunc=identityHash)
+def partitionOtherSide(biGraph, partition, N=10):
     """
         Gievn partitioning for L, generate partitioning for R.
     """
+    def keepMax((part_id1, part_id_cnt1), (part_id2, part_id_cnt2)):
+        if part_id_cnt1>part_id_cnt2:
+            keep_part = part_id1
+            keep_part_cnt = part_id_cnt1
+        else:
+            keep_part = part_id2
+            keep_part_cnt = part_id_cnt2
+        return (keep_part, keep_part_cnt)
+        
+    return biGraph.map(swap)\
+            .join(partition.map(swap))\
+            .map(lambda (var, (obj, part_id)): ((obj, part_id), 1))\
+            .reduceByKey(add, N)\
+            .map(lambda ((obj, part_id), part_id_cnt):(obj, (part_id, part_id_cnt)))\
+            .reduceByKey(keepMax, N)\
+            .map(swap)
+                
+   
+  
+    
     
     
 
@@ -114,6 +133,7 @@ if __name__=="__main__":
     #parser.add_argument('graph2',help = 'File containing the second graph')
     parser.add_argument('outfile', help='The file to write the outputfile',type=str)
     parser.add_argument('--N', help='Number of partitions',type=int, default=10)
+    parser.add_argument('--K', help='Desired number of partitions',type=int, default=10)
   
     snap_group = parser.add_mutually_exclusive_group(required=False)
     snap_group.add_argument('--fromsnap', dest='fromsnap', action='store_true',help="Inputfiles are from SNAP")
@@ -127,6 +147,7 @@ if __name__=="__main__":
     sc.setLogLevel('OFF')
 
     G = sc.textFile(args.G, minPartitions=args.N).map(eval).cache()
+    G = G.flatMapValues(lambda (LL, RL):[elem for elem in LL] + [elem for elem in RL]).cache() 
 
    # if args.fromsnap:
    #     graph1 = readSnap(args.graph1,sc,minPartitions=args.N)
@@ -137,7 +158,13 @@ if __name__=="__main__":
     #    graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
 
 
-    partitions = streamPartition(G, 100, 100)
+    #Get partitions for L
+    L_partitions = streamPartition(biGraph=G.map(swap),K=args.K , N=args.N)
+    with open(args.outfile + '.json', 'w') as outfile:
+        json.dump(partitions, outfile)
+    R_partitions = partitionOtherSide(biGraph, L_partitions , N=args.N)
+    
+    
    # SijGenerator(graph1,graph2,G,args.N)
 
     #Write the obtained graph to a file

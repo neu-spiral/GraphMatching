@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import shutil
 #from google.cloud import storage
@@ -10,6 +11,13 @@ def readSnap(file,sc,minPartitions=10):
                 .map(lambda x: x.split())\
                 .filter(lambda edge:len(edge)==2)
                 #.map(lambda (u,v):(hash(u),hash(v)))
+def readJSON(fname):
+    """
+    Read a dictionary stored as a JSON file.
+    """
+    with open(fname, 'r') as partF:
+        partDict_str = json.load(partF)
+    return dict( [(eval(key), partDict_str[key]) for key in partDict_str ] ) 
     
 
 def readfile(fname):

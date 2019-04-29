@@ -20,13 +20,13 @@ class ParallelSolver():
        the last computation of the local solver. The class can be used as an interface to add "homogeneous" objectives in the consensus admm algorithm,
        that can be executed in parallel
     """
-    def __init__(self,LocalSolverClass,data,initvalue,N,rho,silent=False,lean=False, RDD=None, D=None, lambda_linear=1.0):
+    def __init__(self,LocalSolverClass,data,initvalue,N,rho,silent=False,lean=False, RDD=None, D=None, lambda_linear=1.0, prePartFunc=None):
         """Class constructor. It takes as an argument a local solver class, data (of a form understandable by the local solver class), an initial value for the primal variables, and a boolean value; the latter can be used to suppress the evaluation of the objective. 
         """
         self.SolverClass=LocalSolverClass
         if RDD==None:
             if D==None:
-                self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho).cache()    #LocalSolver class should implement class method initializeLocalVariables
+                self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(Sij=data,initvalue=initvalue,N=N,rho=rho, prePartFunc=prePartFunc).cache()    #LocalSolver class should implement class method initializeLocalVariables
             else:
                 self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho,D,lambda_linear).cache()
         else:
@@ -94,12 +94,12 @@ class ParallelSolver():
 
 class ParallelSolverPnorm(ParallelSolver):
     """This class is inheritted from ParallelSolver, it updates P and Y vriables for a general p-norm solver via inner ADMM."""
-    def __init__(self,LocalSolverClass,data,initvalue,N,rho,rho_inner, p, silent=False,lean=False, RDD=None, debug=False):
+    def __init__(self,LocalSolverClass,data,initvalue,N,rho,rho_inner, p, silent=False,lean=False, RDD=None, debug=False, prePartFunc=None):
         """Class constructor. It takes as an argument a local solver class, data (of a form understandable by the local solver class), an initial value for the primal variables, and a boolean value; the latter can be used to suppress the evaluation of the objective. 
         """
         self.SolverClass=LocalSolverClass
         if RDD==None:
-            self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho, rho_inner).cache()    #LocalSolver class should implement class method initializeLocalVariables
+            self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(Sij=data,initvalue=initvalue,N=N,rho=rho, rho_inner=rho_inner, prePartFunc=prePartFunc).cache()    #LocalSolver class should implement class method initializeLocalVariables
         else:
             self.PrimalDualRDD = RDD
         self.N = N

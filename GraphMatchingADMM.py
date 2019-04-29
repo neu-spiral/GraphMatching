@@ -4,7 +4,7 @@ from pyspark import SparkContext,StorageLevel,SparkConf
 from operator import add,and_
 from LocalSolvers import LocalL1Solver,LocalL2Solver,FastLocalL2Solver,SijGenerator,LocalRowProjectionSolver,LocalColumnProjectionSolver,LocalLSSolver, LocalL1Solver_Old
 from ParallelSolvers import ParallelSolver, ParallelSolver1norm, ParallelSolverPnorm, ParallelSolver2norm
-from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero, adaptRho, readSnap
+from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,mergedicts,safeWrite,NoneToZero, adaptRho, readSnap, readJSON
 #from helpers_GCP import safeWrite_GCP,upload_blob, download_blob
 from debug import logger,dumpPPhiRDD,dumpBasic
 from pprint import pformat
@@ -56,6 +56,8 @@ if __name__=="__main__":
     parser.add_argument('outputfileZRDD',help = 'Output file storing learned doubly stochastic matrix Z')
     parser.add_argument('--graph1',default=None,help = 'File containing first graph (optional).')
     parser.add_argument('--graph2',default=None,help = 'File containing second graph (optional).')
+    parser.add_argument('--partitionL',default=None,help = 'JSON file containing partitioning for PPhiRDD (optional).')
+    parser.add_argument('--partitionR',default=None,help = 'JSON file containing partitioning for ZRDD (optional).')
     parser.add_argument('--objectivefile',default=None,help="File containing pre-computed objectives. Graphs  need not be given if this argument is set.")
     parser.add_argument('--problemsize',default=1000,type=int, help='Problem size. Used to initialize uniform allocation, needed when objectivefile is passed')
     parser.add_argument('--parallelSolver',default='ParallelSolver', choices=['ParallelSolver', 'ParallelSolver1norm', 'ParallelSolverPnorm', 'ParallelSolver2norm'],help='Parallel Solver')
@@ -69,6 +71,7 @@ if __name__=="__main__":
     parser.add_argument('--Nrowcol',default=1,type=int, help='Level of parallelism for Row/Col RDDs')
     parser.add_argument('--p', default=1.5, type=float, help='p parameter in p-norm')
     parser.add_argument('--distfile',type=str,help='File that stores distances the distance matrix D.', default=None)
+    
     
     parser.add_argument('--rhoP',default=1.0,type=float, help='Rho value, used for primal variables P')
     parser.add_argument('--rhoQ',default=1.0,type=float, help='Rho value, used for primal variables Q')
@@ -155,6 +158,17 @@ if __name__=="__main__":
     else:
         D = None
     
+    #Partitioning function (if given)
+    if args.partitionR != None:
+        partDictR = readJSON(args.partitionR)
+        ZRDDpartFunc = lambda x: partDictR[x]
+    if args.partitionL != None:
+        partDictL = readJSON(args.partitionL)
+        SijpartFunc = lambda x: partDictL[x]
+    else:
+        SijpartFunc = None
+
+
     #Read constraint graph
     if not args.fromsnap:
         G = sc.textFile(args.constraintfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
@@ -196,6 +210,7 @@ if __name__=="__main__":
 
 
 
+    
     if args.initRDD != None:
 
 
@@ -211,7 +226,10 @@ if __name__=="__main__":
         numb_of_prev_iters = max(trace.keys())+1
 
        #Resume iterations from prevsiously dumped iterations. 
-        ZRDD = sc.textFile(args.initRDD+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        if args.partitionR == None:
+            ZRDD = sc.textFile(args.initRDD+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        else:
+            ZRDD = sc.textFile(args.initRDD+"_ZRDD").map(eval).partitionBy(args.N, partitionFunc=ZRDDpartFunc).persist(StorageLevel.MEMORY_ONLY)
         if ParallelSolverClass == ParallelSolver:
             PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
             PPhi = ParallelSolver(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, lean=args.lean,silent=args.silent, RDD=PPhi_RDD)
@@ -235,10 +253,11 @@ if __name__=="__main__":
 
        #Create primal and dual variables and associated solvers
         if ParallelSolverClass == ParallelSolver:
-             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, lean=args.lean,silent=args.silent)
+             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, lean=args.lean,silent=args.silent, prePartFunc=SijpartFunc)
         else:
-             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.leanInner, silent=args.silent)
+             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.leanInner, silent=args.silent, prePartFunc=SijpartFunc)
         logger.info('Partitioned data (P/Phi) RDD stats: '+PPhi.logstats() )    
+
       
         QXi = ParallelSolver(LocalSolverClass=LocalRowProjectionSolver, data=G, initvalue=uniformweight, N=args.Nrowcol, rho=args.rhoQ, D=D, lambda_linear=args.lambda_linear, lean=args.lean, silent=args.silent)
         logger.info('Row RDD (Q/Xi) RDD stats: '+QXi.logstats() )
@@ -248,7 +267,10 @@ if __name__=="__main__":
 
 
         #Create consensus variable, initialized to uniform assignment ignoring constraints
-        ZRDD = G.map(lambda (i,j):((i,j),uniformweight)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        if args.partitionR == None:
+            ZRDD = G.map(lambda (i,j):((i,j),uniformweight)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        else:
+            ZRDD = G.map(lambda (i,j):((i,j),uniformweight)).partitionBy(args.N, partitionFunc=ZRDDpartFunc).persist(StorageLevel.MEMORY_ONLY)
         
         #Initialize trace to an empty dict
         trace = {}

@@ -59,7 +59,7 @@ def SijGenerator(graph1,graph2,G,N):
 
 
 
-def streamPartition(biGraph,K,N=100,c=lambda x:x^2):
+def streamPartition(biGraph,K,N=100,c=lambda x:x**2):
      """Given a bipartite graph G(L,R,E), produce a streamed balanced partition of nodes on L. The bipartite graph is represented as an rdd of edges E=(i,j), with i in L and j in R.
      """
      invGraph = biGraph.map(swap)\
@@ -93,13 +93,65 @@ def streamPartition(biGraph,K,N=100,c=lambda x:x^2):
          if cnt % 20 ==1:
              print "Done assigining for %d nodes" %cnt  
      return partition
+
+def SequentialStreamPartition(biGraph,K,c=lambda x:x**2):
+    """Given a bipartite graph G(L,R,E), produce a streamed balanced partition of nodes on L. The bipartite graph is represented as an rdd of edges E=(i,j), with i in L and j in R.
+    """
+    #Make inverse graph
+    invGraph = {}
+    for obj in biGraph:
+        for var in biGraph[obj]:
+            if var not in invGraph:
+                invGraph[var] = [obj]
+            else:
+                invGraph[var].append(obj)
+
+     
+    partition = {}
+    partitionSizes =  dict([(part,0) for part in range(K)])
+    cnt = 0
+    innerEdges = dict([(part,0) for part in range(K)])
+    allEdges = 0
+    for node in biGraph:
+        gain = dict([(part,0) for part in range(K)])
+        neighbors = []
+        for node_R in biGraph[node]:
+            for node_L_neigh in invGraph[node_R]:
+                if node_L_neigh != node:
+                    neighbors.append(node_L_neigh)       
+        allEdges += len(neighbors)
+        for z in neighbors:
+            if z in partition:
+                gain[partition[z]] += 1
+
+        for part in range(K):
+            gain[part] +=  c(partitionSizes[part]) -  c(partitionSizes[part]+1) 
+       
+
+        (opt_part,val) = max(gain.iteritems(), key=lambda (part,val):val)
+        innerEdges[opt_part] += gain[opt_part] - c(partitionSizes[opt_part]) + c(partitionSizes[opt_part]+1)
+        partition[node] = opt_part
+        partitionSizes[opt_part] += 1
+        
+        cnt += 1
+        if cnt % 1000 ==1:
+            print "Done assigining for %d nodes" %cnt
+
+    maxEdges_part, maxEdges = max(innerEdges.iteritems(), key=lambda (part,val):val)
+    minEdges_part, minEdges = min(innerEdges.iteritems(), key=lambda (part,val):val)
+    maxSize_part, maxSize =  max(partitionSizes.iteritems(), key=lambda (part,val):val)
+    minSize_part, minSize =  min(partitionSizes.iteritems(), key=lambda (part,val):val)
+    print "The min inner edges is {} the max inner edges is {}, and all edges {}".format(minEdges, maxEdges, allEdges) 
+    print "The min partition size is {} the max partition size is {} the average size is {}\n".format(minSize, maxSize, len(biGraph.keys())/K)
+    
+    return partition
 def partition2RDD(partition, sc):
     """
         Given partitioning as partition, return the RDD.
     """
     numParts = len(set([partition[node] for node in partition]) )
     return sc.paralelize([(partition[node], node) for node in partition]).partitionBy(numParts, partitionFunc=identityHash)
-def partitionOtherSide(biGraph, partition, N=10):
+def partitionRightSide(biGraph, partition, N=10):
     """
         Gievn partitioning for L, generate partitioning for R.
     """
@@ -120,7 +172,37 @@ def partitionOtherSide(biGraph, partition, N=10):
             .reduceByKey(keepMax, N)\
             .map(swap)
                 
-   
+def SeqPartitionRightSide(biGraph, partition):
+    """
+        Gievn partitioning for L, generate partitioning for R.
+    """   
+    partition_R = {}
+    final_partition_R = {}
+    for node_L in partition:
+        current_id = partition[node_L]
+        for node_R in biGraph[node_L]:
+            if node_R not in partition_R:
+                partition_R[node_R] = dict([(current_id, 1)])
+            elif current_id not in partition_R[node_R]:
+                partition_R[node_R][current_id] = 1
+            else:
+                partition_R[node_R][current_id] += 1
+    partitionSizes = {}
+    for node_R in  partition_R:
+        opt_part, opt_part_size = max(partition_R[node_R].iteritems(), key=lambda (part,val):val)
+        final_partition_R[node_R] = opt_part
+        if opt_part not in partitionSizes:
+            partitionSizes[opt_part] = 1
+        else:
+            partitionSizes[opt_part] += 1  
+
+    maxSize_part, maxSize =  max(partitionSizes.iteritems(), key=lambda (part,val):val)
+    minSize_part, minSize =  min(partitionSizes.iteritems(), key=lambda (part,val):val)
+    print "The min partition size is {} the max partition size is {} the average size is {}\n".format(minSize, maxSize, len(biGraph.keys())/len(partitionSizes))
+    
+    return final_partition_R
+       
+ 
   
     
     
@@ -135,10 +217,6 @@ if __name__=="__main__":
     parser.add_argument('--N', help='Number of partitions',type=int, default=10)
     parser.add_argument('--K', help='Desired number of partitions',type=int, default=10)
   
-    snap_group = parser.add_mutually_exclusive_group(required=False)
-    snap_group.add_argument('--fromsnap', dest='fromsnap', action='store_true',help="Inputfiles are from SNAP")
-    snap_group.add_argument('--notfromsnap', dest='fromsnap', action='store_false',help="Inputfiles are pre-formatted")
-    parser.set_defaults(fromsnap=True)
     args = parser.parse_args()    
 
     configuration = SparkConf()
@@ -147,7 +225,8 @@ if __name__=="__main__":
     sc.setLogLevel('OFF')
 
     G = sc.textFile(args.G, minPartitions=args.N).map(eval).cache()
-    G = G.flatMapValues(lambda (LL, RL):[elem for elem in LL] + [elem for elem in RL]).cache() 
+    G = G.mapValues(lambda (LL, RL):LL + RL).collect()
+    G = dict(G)
 
    # if args.fromsnap:
    #     graph1 = readSnap(args.graph1,sc,minPartitions=args.N)
@@ -159,15 +238,20 @@ if __name__=="__main__":
 
 
     #Get partitions for L
-    L_partitions = streamPartition(biGraph=G.map(swap),K=args.K , N=args.N)
-    with open(args.outfile + '.json', 'w') as outfile:
-        json.dump(partitions, outfile)
-    R_partitions = partitionOtherSide(biGraph, L_partitions , N=args.N)
+    L_partitions = SequentialStreamPartition(biGraph=G, K=args.K)
+    
+    #Get partitions for R
+    R_partitions = SeqPartitionRightSide(biGraph=G, partition=L_partitions)
     
     
-   # SijGenerator(graph1,graph2,G,args.N)
-
-    #Write the obtained graph to a file
+    #Write the obtained partitions
+    with open(args.outfile + '_L.json', 'w') as fout:
+        L_partitions = dict([(str(key), L_partitions[key]) for key in L_partitions])
+        json.dump(L_partitions, fout)
+    with open(args.outfile + '_R.json', 'w') as fout:
+        R_partitions = dict([(str(key), R_partitions[key]) for key in R_partitions])
+        json.dump(R_partitions, fout)
+       
     
                
         

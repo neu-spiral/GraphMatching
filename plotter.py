@@ -8,7 +8,7 @@ import argparse
 import os
 
 
-plt.rc('font', family='serif') 
+#plt.rc('font', family='serif') 
 plt.rc('font', serif='Times New Roman') 
 plt.rc('font', size=22) 
 

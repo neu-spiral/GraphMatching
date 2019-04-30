@@ -217,6 +217,10 @@ if __name__=="__main__":
     parser.add_argument('--N', help='Number of partitions',type=int, default=10)
     parser.add_argument('--K', help='Desired number of partitions',type=int, default=10)
   
+    dirgroup = parser.add_mutually_exclusive_group(required=False)
+    dirgroup.add_argument('--inverse', dest='inverse', action='store_true',help='Partition the inverse of the given bi-partite graph (default).')
+    dirgroup.add_argument('--forward', dest='inverse', action='store_false',help='Partition the given bi-partite graph.')
+    parser.set_defaults(inverse=True)
     args = parser.parse_args()    
 
     configuration = SparkConf()
@@ -224,33 +228,49 @@ if __name__=="__main__":
     sc = SparkContext(appName='Parallel Graph Preprocessing', conf=configuration)
     sc.setLogLevel('OFF')
 
-    G = sc.textFile(args.G, minPartitions=args.N).map(eval).cache()
-    G = G.mapValues(lambda (LL, RL):LL + RL).collect()
-    G = dict(G)
+    if args.inverse:
+        G = sc.textFile(args.G, minPartitions=args.N).map(eval)
+        Ginv = G.flatMapValues(lambda (LL, RL):LL + RL)\
+                .map(swap).partitionBy(args.N)\
+                .groupByKey()\
+                .collect()
+        Ginv = dict(Ginv)
+   
+        #Get partitions for LHS (vars) of the inverse 
+        L_partitions = SequentialStreamPartition(biGraph=Ginv, K=args.K)
 
-   # if args.fromsnap:
-   #     graph1 = readSnap(args.graph1,sc,minPartitions=args.N)
-   #     graph2 = readSnap(args.graph2,sc,minPartitions=args.N)
-
-    #else:
-    #    graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
-    #    graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
-
-
-    #Get partitions for L
-    L_partitions = SequentialStreamPartition(biGraph=G, K=args.K)
+        #Get partitions for RHS of the inverse (objs) according to LHS 
+        R_partitions = SeqPartitionRightSide(biGraph=Ginv, partition=L_partitions)
     
-    #Get partitions for R
-    R_partitions = SeqPartitionRightSide(biGraph=G, partition=L_partitions)
+        #Write the obtained partitions
+        with open(args.outfile + '_VAR.json', 'w') as fout:
+            L_partitions = dict([(str(key), L_partitions[key]) for key in L_partitions])
+            json.dump(L_partitions, fout)
+        with open(args.outfile + '_OBJ.json', 'w') as fout:
+            R_partitions = dict([(str(key), R_partitions[key]) for key in R_partitions])
+            json.dump(R_partitions, fout)
+        
+    else:
+
+        G = sc.textFile(args.G, minPartitions=args.N).map(eval).cache()
+        G = G.mapValues(lambda (LL, RL):LL + RL).collect()
+        G = dict(G)
+
+
+        #Get partitions for LHS of the forward (objs)
+        L_partitions = SequentialStreamPartition(biGraph=G, K=args.K)
+    
+        #Get partitions for RHS of the forward (vars) according to LHS 
+        R_partitions = SeqPartitionRightSide(biGraph=G, partition=L_partitions)
     
     
-    #Write the obtained partitions
-    with open(args.outfile + '_L.json', 'w') as fout:
-        L_partitions = dict([(str(key), L_partitions[key]) for key in L_partitions])
-        json.dump(L_partitions, fout)
-    with open(args.outfile + '_R.json', 'w') as fout:
-        R_partitions = dict([(str(key), R_partitions[key]) for key in R_partitions])
-        json.dump(R_partitions, fout)
+        #Write the obtained partitions
+        with open(args.outfile + '_OBJ.json', 'w') as fout:
+            L_partitions = dict([(str(key), L_partitions[key]) for key in L_partitions])
+            json.dump(L_partitions, fout)
+        with open(args.outfile + '_VAR.json', 'w') as fout:
+            R_partitions = dict([(str(key), R_partitions[key]) for key in R_partitions])
+            json.dump(R_partitions, fout)
        
     
                

@@ -43,6 +43,28 @@ def evalSolvers(cls_args, P_vals, Phi_vals, stats, dumped_cls):
 def evalSolversY(cls_args, P_vals, Y_vals, Phi_vals, Upsilon_vals, stats, dumped_cls, rho_inner):
     solvers_cls = pickle.loads(dumped_cls)
     return solvers_cls(cls_args[0], cls_args[1], rho_inner), P_vals, Y_vals, Phi_vals, Upsilon_vals, stats
+def MakeRowColObjectives(collectedVars, initValue=0.001, row=True):
+    """
+        Given the suppoort of variables return a dictionary s.t., each key represnts a row or col, and the value is a dictionary of corresponding varibales (as keys) and the primal and dual variables values (as values).
+    """
+    objs = {}
+    for var in collectedVars:
+        if row:
+            (i,j) = var
+        else:
+            (i,j) = swap(var)
+        if i not in objs:
+            if row:
+                objs[i] = {(i,j): (initValue, 0.0)}
+            else:
+                objs[i] = {(j,i): (initValue, 0.0)}
+        else:
+            if row:
+                objs[i][(i,j)] = (initValue, 0.0)
+            else:
+                objs[i][(j,i)] = (initValue, 0.0)
+    return objs
+    
     
 
 
@@ -68,7 +90,6 @@ if __name__=="__main__":
     parser.add_argument('--maxiter',default=5,type=int, help='Maximum number of iterations')
     parser.add_argument('--maxInnerADMMiter',default=40,type=int, help='Maximum number of Inner ADMM iterations')
     parser.add_argument('--N',default=8,type=int, help='Number of partitions')
-    parser.add_argument('--Nrowcol',default=1,type=int, help='Level of parallelism for Row/Col RDDs')
     parser.add_argument('--p', default=1.5, type=float, help='p parameter in p-norm')
     parser.add_argument('--distfile',type=str,help='File that stores distances the distance matrix D.', default=None)
     
@@ -154,7 +175,7 @@ if __name__=="__main__":
         oldLinObjective = 0.
 
     if args.distfile is not None:
-        D =  sc.textFile(args.distfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        D = dict( sc.textFile(args.distfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY).collect() )
     else:
         D = None
     
@@ -240,15 +261,9 @@ if __name__=="__main__":
             PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner, lean=args.leanInner, silent=args.silent, RDD=PPhi_RDD)
         logger.info('From the last iteration solver (P/Phi) RDD stats: '+PPhi.logstats() )
 
-        QXi_RDD = sc.textFile(args.initRDD+"_QXiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalRowProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
-        QXi = ParallelSolver(LocalSolverClass=LocalRowProjectionSolver, data=G, initvalue=uniformweight, N=args.Nrowcol, rho=args.rhoQ, D=D, lambda_linear=args.lambda_linear, lean=args.lean, silent=args.silent, RDD=QXi_RDD)
-        logger.info('From the last iteration row (Q/Xi) RDD stats: '+QXi.logstats() )
+        QXi = json.load(open(args.initRDD + '_QXi.json'))
+        TPsi  = json.load(open(args.initRDD + '_TPsi.json'))
 
-        TPsi_RDD = sc.textFile(args.initRDD+"_TPsiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(LocalColumnProjectionSolver))).persist(StorageLevel.MEMORY_ONLY)
-        TPsi = ParallelSolver(LocalSolverClass=LocalColumnProjectionSolver, data=G, initvalue=uniformweight, N=args.Nrowcol, rho=args.rhoT, D=D, lambda_linear=args.lambda_linear, lean=args.lean, silent=args.silent, RDD=TPsi_RDD)
-
-       
-        logger.info('From the last iteration column (T/Psi) RDD stats: '+TPsi.logstats() )
 
 
     else:
@@ -260,25 +275,23 @@ if __name__=="__main__":
              PPhi = ParallelSolverClass(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, p=args.p, rho_inner=args.rho_inner,lean=args.leanInner, silent=args.silent, prePartFunc=SijpartFunc)
         logger.info('Partitioned data (P/Phi) RDD stats: '+PPhi.logstats() )    
 
-      
-        QXi = ParallelSolver(LocalSolverClass=LocalRowProjectionSolver, data=G, initvalue=uniformweight, N=args.Nrowcol, rho=args.rhoQ, D=D, lambda_linear=args.lambda_linear, lean=args.lean, silent=args.silent)
-        logger.info('Row RDD (Q/Xi) RDD stats: '+QXi.logstats() )
-
-        TPsi = ParallelSolver(LocalSolverClass=LocalColumnProjectionSolver, data=G, initvalue=uniformweight, N=args.Nrowcol, rho=args.rhoT, D=D, lambda_linear=args.lambda_linear, lean=args.lean, silent=args.silent)
-        logger.info('Column RDD (T/Psi) RDD stats: '+TPsi.logstats() )
-
-
         #Create consensus variable, initialized to uniform assignment ignoring constraints
         if args.partitionR == None:
-            ZRDD = G.map(lambda (i,j):((i,j),uniformweight)).partitionBy(args.Nrowcol).persist(StorageLevel.MEMORY_ONLY)
+            ZRDD = G.map(lambda (i,j):((i,j),uniformweight)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
         else:
             ZRDD = G.map(lambda (i,j):((i,j),uniformweight)).partitionBy(args.N, partitionFunc=ZRDDpartFunc).persist(StorageLevel.MEMORY_ONLY)
         
+        #Create row and col local variables centerally.
+        QXi = MakeRowColObjectives( G.collect(), uniformweight, True )
+        TPsi = MakeRowColObjectives( G.collect(), uniformweight, False )
+
         #Initialize trace to an empty dict
         trace = {}
         numb_of_prev_iters = 0
     	
     end_timing = time.time()
+    #Generate row and col objectives
+    
     logger.info("The number of partitions for ZRDD, PPhiRDD, QXiRDD, and TPsiRDD are %d %d %d %d, respectively." %(ZRDD.getNumPartitions(), PPhi.PrimalDualRDD.getNumPartitions(), QXi.PrimalDualRDD.getNumPartitions(), TPsi.PrimalDualRDD.getNumPartitions()) )
     logger.info("Data input and preprocessing done in %f seconds, starting main ADMM iterations " % ( end_timing -start_timing))
 
@@ -299,6 +312,8 @@ if __name__=="__main__":
             (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, rhoQ, checkpoint=chckpnt, forceComp=forceComp)
             if DEBUG:
                 logger.info("Iteration %d row (Q/Xi) stats: %s" % (iteration,QXi.logstats())) 
+
+            
             (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, rhoT, checkpoint=chckpnt, forceComp=forceComp)
             if DEBUG:
                 logger.info("Iteration %d column (T/Psi) stats: %s" % (iteration,TPsi.logstats())) 

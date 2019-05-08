@@ -202,13 +202,13 @@ if __name__=="__main__":
     rho = args.rho
     epsilon = args.epsilon
     
-    NothersRDD = sc.textFile(args.inputfile).map(eval).partitionBy(args.parts).mapPartitionsWithIndex(createRDD).cache()
-    print NothersRDD.take(1)
+
+    NothersRDD = sc.textFile(args.inputfile, minPartitions=args.parts).map(eval).partitionBy(args.parts).mapPartitionsWithIndex(createRDD).cache()
     Z, Z_norm = pnormOp(NothersRDD,p, rho, epsilon)
     Z = Z.values().flatMap(lambda (N_dict, Others): [(key, N_dict[key]) for key in N_dict])
      
 
-    N = sc.textFile(args.inputfile).map(eval).partitionBy(args.parts)
+    N = sc.textFile(args.inputfile, minPartitions=args.parts).map(eval).partitionBy(args.parts)
     Z2, Z_norm2, tz = pnorm_proxop(N, p, rho, epsilon)
     safeWrite(Z2, args.outputfile+"_first")
     

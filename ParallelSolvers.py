@@ -340,7 +340,7 @@ class ParallelSolver1norm(ParallelSolverPnorm):
             return None
 
 class ParallelSolver2norm(ParallelSolverPnorm):
-    def joinAndAdapt(self,ZRDD, alpha, rho, alpha_inner=1.0, maxiters = 100, residual_tol = 1.e-06, checkpoint = False, logger = None, forceComp=False):
+    def joinAndAdapt(self,ZRDD, alpha, rho, alpha_inner=1.0, maxiters = 100, residual_tol = 1.e-06, accelerated=False, checkpoint = False, logger = None, forceComp=False):
         rho_inner = self.rho_inner
         p_param = 2
         if self.debug:
@@ -375,9 +375,16 @@ class ParallelSolver2norm(ParallelSolverPnorm):
         last = time()
         start_time = last
         #Start the inner ADMM iterations
+        if accelerated:
+            #For accelerated ADMM, keep track of old dual variables Upsilon as well, plus add Upsilon hat. (see Alg. 2 in Accelerated Alternating Direction Method of Multipliers by Kadkhodaie et al.)
+            ZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver,P,Y,Phi,Upsilon,Upsilon,Upsilon,stats,Zbar))
+            ak = 1.
         for i in range(maxiters):
             #Compute vectors Fm(Pm)
-            FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),P,Y,Phi,Upsilon,stats,Zbar))
+            if accelerated:
+                FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,OldUpsilon,HatUpsilon, stats,Zbar):(solver, Fm(solver.objectives,P),P,Y,Phi,Upsilon, OldUpsilon, HatUpsilon, stats,Zbar))
+            else:
+                FmZbarPrimalDual = ZbarPrimalDual.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats,Zbar):(solver, Fm(solver.objectives,P),P,Y,Phi,Upsilon,stats,Zbar))
             if not self.lean or (self.lean and i==maxiters-1):
                #Compute the residual 
                 OldinnerResidual = np.sqrt(FmZbarPrimalDual.values().flatMap(lambda (solver, FPm,OldP,Y,Phi,Upsilon,stats,Zbar): [(Y[key]-FPm[key])**2 for key in Y]).reduce(add) )
@@ -385,13 +392,28 @@ class ParallelSolver2norm(ParallelSolverPnorm):
 
             ##ADMM steps
             #Adapt the dual varible Upsilon
-            FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha_inner*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
+            if accelerated:
+                #Replace OldUpsilon
+                FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon, OldUpsilon, HatUpsilon,stats,Zbar):  (solver, FPm,OldP, Y,Phi,Upsilon, Upsilon, HatUpsilon,stats,Zbar))
+                #Update Upsilon 
+                FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon, OldUpsilon, HatUpsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,HatUpsilon[key]+alpha_inner*(Y[key]-FPm[key])) for key in Y]), OldUpsilon, HatUpsilon, stats,Zbar))
+                #Update HatUpsilon
+                FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon, OldUpsilon, HatUpsilon,stats,Zbar): (solver, FPm,OldP, Y,Phi,Upsilon,OldUpsilon , dict( [(key, Upsilon[key] + (ak-1.)/(ak+1.)*(Upsilon[key]-OldUpsilon[key])) for key in Upsilon]),  stats,Zbar))
+                #Update ak
+                ak = 0.5 * (1. + np.sqrt(1+4*ak**2))
+                  
+            else:
+                FmYNewUpsilonPPhi = FmZbarPrimalDual.mapValues(lambda (solver, FPm,OldP, Y,Phi,Upsilon,stats,Zbar): (solver, FPm, OldP, Y, Phi, dict( [(key,Upsilon[key]+alpha_inner*(Y[key]-FPm[key])) for key in Y]),stats,Zbar))
 
 
             #Update Y via prox. op. for ell_2 norm
-            NewYUpsilonPhi, Ynorm = EuclidiannormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm,OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ),  rho_inner,  self.lean and i<maxiters-1)
-            NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
-        
+            if accelerated:
+                NewYUpsilonPhi, Ynorm = EuclidiannormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm,OldP, Y, Phi, Upsilon, OldUpsilon, HatUpsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon, OldUpsilon, HatUpsilon, stats, Zbar)  ) ),  rho_inner,  self.lean and i<maxiters-1)
+                NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, OldUpsilon, HatUpsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon, OldUpsilon, HatUpsilon, stats, Zbar) )
+            else:
+                NewYUpsilonPhi, Ynorm = EuclidiannormOp(FmYNewUpsilonPPhi.mapValues(lambda (solver, FPm,OldP, Y, Phi, Upsilon, stats, Zbar):(dict([(key,FPm[key]-Upsilon[key]) for key in Upsilon]), (solver, OldP, Y, Phi, Upsilon,stats,Zbar)  ) ),  rho_inner,  self.lean and i<maxiters-1)
+                NewYUpsilonPhi = NewYUpsilonPhi.mapValues(lambda (Y, (solver, OldP, OldY, Phi, Upsilon, stats, Zbar)): (solver, OldP, Y, OldY, Phi, Upsilon,stats, Zbar) )
+             #To Be Continued  
 
             if not self.lean or (self.lean and i==maxiters-1):
                #Compute the dual residual for Y

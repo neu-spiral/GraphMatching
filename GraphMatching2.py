@@ -308,6 +308,8 @@ if __name__=="__main__":
         #in Silent mode forceComp will force computation of the stats, e.g., in the last iteration
         forceComp = iteration==args.maxiter-1
 
+        #Collect consensus variables locally 
+        ZRDD_c = dict( ZRDD.collect())
         if not args.silent or forceComp:
             (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, rhoQ, checkpoint=chckpnt, forceComp=forceComp)
             if DEBUG:

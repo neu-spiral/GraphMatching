@@ -134,6 +134,7 @@ if __name__=='__main__':
     	ax.set_ylabel(data_labels[data_label])
         if myargs.time:
     	    ax.set_xlabel(data_labels['TIME'])
+            ax.set_xlim([0, 200])
         else:
             ax.set_xlabel(data_labels['ITERATION'])
 #            ax.set_xlim([0, 61])        

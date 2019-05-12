@@ -1,19 +1,25 @@
 import argparse
+from scipy.optimize import linear_sum_assignment
 import glob
 import numpy as np
 from numpy import sign
 from pyspark import SparkContext
 from time import time
 from numpy.linalg import matrix_rank
-def norm(x,p):
-    return ( sum( abs(x)**p)) **(1./p)
-def grad_norm(x,p):
-    """Return gradient for p-norm function g(x)=\|x\|_p"""
-    m, one = x.size
-    norm_p = norm(x,p) 
-    grad = matrix(0.0, (m,1))
-    for i in range(m):
-        grad[i] = sign(x[i]) * (abs(x[i])/norm_p)**(p-1.)
+
+
+def vec_norm(x,p):
+    tmp = 0.0
+    for key in x:
+        tmp += abs(x[key])**p
+    return tmp **(1./p)
+
+def grad_norm(F,p):
+    """Return gradient for p-norm function g(x)=\|F\|_p, F is a dict"""
+    grad = {}
+    norm_p = vec_norm(F,p)
+    for key in F:
+        grad[key] = sign(F[key]) * (abs(F[key])/norm_p)**(p-1.)
     return grad
 def Hessian_norm(x,p):
     """Return the Hessian matrix for p-norm function g(x)=\|x\|_p"""
@@ -28,40 +34,32 @@ def Hessian_norm(x,p):
                 Hessian[i,j] = (p-1.) * abs(x[i])**(p-2.)/(norm_p**(p-1.)) + (1.-p) * abs(x[i])**(2*p-2.)/(norm_p**(2*p-1.)) 
     return Hessian 
            
-def grad_Fij(transl_vars2i,transl_objs2i):
-    """Compute the \nablaF, where F=[f_1(p), ..., f_m(p)]^T; it returns an n by m matrix."""
-    m = len(transl_objs2i)
-    n = len(transl_vars2i)
-    grad = matrix(0.0, (n,m)) 
-    for key in objectives:
-        col = transl_objs2i[key]
-        (s1, s2) = objectives[key]
+
+def dict_grad_Fij(objectives):
+    '''Return the gradianet of AP-PB w.r.t. P as a dict, with keys (obj, var)'''
+    grad = {}
+
+    for obj in objectives:
+        (s1, s2) = objectives[obj]
         for var in s1:
-            row = transl_vars2i[var]
-            grad[row, col] = 1.
+            grad[(obj, var)] = 1.
         for var in s2:
-            row = transl_vars2i[var]
-            if grad[row, col] == 0:
-                col = transl_vars2i[var]
-                grad[row, col] = -1.
+            if (obj, var) not in grad:
+                grad[(obj, var)] = -1.
             else:
-                grad[row, col] = 0.0
+                grad[(obj, var)] = 0.0
     return grad
-def eval_Fij(objectives, transl_vars2i,transl_objs2i, p):
+def eval_Fij(objectives, P):
     """Given the vector p return the functions f_1(p), ..., f_m(p) as an m-dimensional vector F"""
-    m = len(transl_objs2i)
-    F = matrix(0.0, (m,1))
-    for key in objectives:
-        (s1, s2) = objectives[key]
-        row = transl_objs2i[key]
+    F = {}
+    for obj  in objectives:
         tmpVal = 0.0
+        (s1, s2) = objectives[obj]
         for var in s1:
-            var_ind = transl_vars2i[var]
-            tmpVal += p[var_ind]
+            tmpVal += P[var]
         for var in s2:
-            var_ind = transl_vars2i[var]
-            tmpVal -= p[var_ind]
-        F[row] = tmpVal
+            tmpVal -= P[var]
+        F[obj] = tmpVal
     return F
     
 def get_translators(objectives):
@@ -80,7 +78,10 @@ def get_translators(objectives):
         variable_set.update(set(s2))
     i = 0
     for var in variable_set:
-        transl_vars2i[var] = i
+        (node1, node2) = var
+        node1 = int(node1)
+        node2 = int(node2)
+        transl_vars2i[(node1, node2)] = i
         i += 1
     transl_i2vars = dict( [(transl_vars2i[key],key) for key in transl_vars2i])
     transl_i2objs = dict( [(transl_objs2i[key],key) for key in transl_objs2i])
@@ -119,27 +120,97 @@ def build_constraints(transl_vars2i, rowObjs, colObjs):
             A[cnt, coord] = 1.
         cnt += 1
     return A, b
-def FW(objs, N, maxiters=100):
+def vec2mat(vec, trans_dict, dim):
+    m, one = vec.shape
+    mat = np.matrix(np.zeros((dim, dim)) )
+    for i in range(m):
+        r,c = trans_dict[i]
+        mat[r,c] = vec[i,0]
+    return mat
+def ComposGrad(VARS2objectivesPlus, VARS2objectivesMinus, g_norm):
+    grad = {}
+    for var in VARS2objectivesPlus:
+        grad[var] = 0.0
+        for obj in VARS2objectivesPlus[var]:
+            grad[var] += g_norm[obj]
+    for var in VARS2objectivesMinus:
+        if var not in grad:
+            grad[var] = 0.0
+        for obj in VARS2objectivesMinus[var]: 
+            grad[var] -= g_norm[obj]
+    return grad
+def dictTo2darray(grad, N):
+    M = np.zeros((N, N))
+    for var in grad:
+       i,j = evalPair(var)
+       M[i][j] = grad[var]
 
-    
-    
-    #Find dictionaries to trnaslate matrix elements to the corresponding coordinate in its vectorization.
-    transl_vars2i, transl_objs2i, transl_i2vars, transl_i2objs = get_translators(objectives)
-
-    #Initial value 
-    P = np.zeros(N*N)
+    return M
+def SumRowCol(P, N):
+    rowSum = {}
+    colSum = {}
     for i in range(N):
-         coord = transl_vars2i[(unicode(i), unicode(i))]
-         P[coord] = 1.0
-
-    grad_APminusPB = grad_Fij(transl_vars2i,transl_objs2i)
-    for t in range(maxiters):
-        print t
-        APminusBP = eval_Fij(objectives, transl_vars2i,transl_objs2i, P)
-        Df = (grad_APminusPB *  grad_norm(APminusBP,args.p)).T 
+        tmp = 0.0 
+        for j in range(N):
+            if (unicode(i), unicode(j)) in P:
+                tmp += P[(unicode(i), unicode(j))]      
+        rowSum[i] = tmp
+    for j in range(N):
+        tmp = 0.0
+        for i in range(N):
+            if (unicode(i), unicode(j)) in P:
+                tmp += P[(unicode(i), unicode(j))]
+        colSum[j] = tmp
+    return rowSum, colSum
+    
+      
         
+def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, maxiters=100):
+    
+    
+    trace = {} 
+    tSt = time() 
+    #Find dictionaries to trnaslate matrix elements to the corresponding coordinate in its vectorization.
+   # transl_vars2i, transl_objs2i, transl_i2vars, transl_i2objs = get_translators(objectives)
 
     
+    #Initial value 
+    P = {}
+    for i in range(N):
+        for j in range(N):
+            if i==j:
+                P[(unicode(i), unicode(j))] = 1.0
+            else:
+                P[(unicode(i), unicode(j))] = 0.0
+              
+
+    last = time()
+    print "Done preprocessing...\n Time is: %f (s)" %(last-tSt)
+    for t in range(maxiters):
+        trace[t] = {}
+        step_size = 1./(t+2)
+        APminusBP = eval_Fij(objectives, P)
+        OBJ = vec_norm(APminusBP, args.p)
+         
+        Df = ComposGrad(VARS2objectivesPlus, VARS2objectivesMinus, grad_norm(APminusBP,args.p) )
+        Df_mat = dictTo2darray(Df, N)
+        
+        row_ind, col_ind = linear_sum_assignment(Df_mat)
+
+        for var in P:
+            P[var] = (1-step_size) * P[var]
+        for (r, c) in enumerate(col_ind):
+            P[(unicode(r), unicode(c))] += step_size
+        now = time()
+        trace[t]['OBJ'] = OBJ
+        trace[t]['IT_TIME'] = now - last
+        trace[t]['TIME'] = now - tSt
+        print "Iteration %d, iteration time is %f Objective is %f" %(t, now - last, OBJ)
+        last = time()
+    return P, trace 
+    
+def evalPair(pair):
+    return (eval(pair[0]), eval(pair[1]))
     
     
 if __name__=="__main__":
@@ -155,9 +226,30 @@ if __name__=="__main__":
 
     args = parser.parse_args()
     sc = SparkContext(appName='CVX GM',master='local[40]')
-    objectives = dict(sc.textFile(args.objectives).map(eval).collect())
+    sc.setLogLevel('OFF')
 
-    sol, trace = FW(objectives, args.N)
+    objectives = {}
+    VARS2objectivesPlus = {}
+    VARS2objectivesMinus = {}
+    for partFile in  glob.glob(args.objectives + "/part*"):
+        print "Now readaiang" + partFile
+        with open(partFile, 'r') as pF:
+            for obj_line in pF:
+                (obj, VARS) = eval(obj_line)
+                objectives[obj] = VARS
+                for var in VARS[0]:
+                    if var not in VARS2objectivesPlus:
+                        VARS2objectivesPlus[var] = [obj]
+                    else:
+                        VARS2objectivesPlus[var].append(obj)
+                for var in VARS[1]:
+                    if var not in VARS2objectivesMinus:
+                        VARS2objectivesMinus[var] = [obj]
+                    else:
+                        VARS2objectivesMinus[var].append(obj)
+                   
+
+    sol, trace = FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, args.N)
 
     
     

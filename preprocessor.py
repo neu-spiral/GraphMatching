@@ -205,7 +205,6 @@ if __name__=="__main__":
 
     #    dummyNodes = [(str(dum), str(node_i) ) for dum in range(n_min, n_max) for node_i in range(n_max)]
         dummyNodes = [(str(dum), str(dum) ) for dum in range(n_min, n_max)]
-        print dummyNodes
         dummyNodes = sc.parallelize(dummyNodes).partitionBy(args.N)
         
         if n1<n2:

@@ -1,4 +1,5 @@
 import argparse
+import pickle
 from scipy.optimize import linear_sum_assignment
 import glob
 import numpy as np
@@ -163,9 +164,16 @@ def SumRowCol(P, N):
         colSum[j] = tmp
     return rowSum, colSum
     
+def  DualGap(Var, S, Grad):
+    gap = 0.0
+    for key in Var:
+        gap += Var[key]*Grad[key]
+    for  (r, c) in enumerate(S):
+        gap -= Grad[(unicode(r), unicode(c))]
+    return gap
       
         
-def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, maxiters=100):
+def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lamb=0.0, maxiters=100, epsilon=1.e-2):
     
     
     trace = {} 
@@ -189,23 +197,43 @@ def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, maxiters=100):
     for t in range(maxiters):
         trace[t] = {}
         step_size = 1./(t+2)
+
+
+        #Compute objective
         APminusBP = eval_Fij(objectives, P)
-        OBJ = vec_norm(APminusBP, args.p)
+        OBJNOLIN = vec_norm(APminusBP, args.p)
          
-        Df = ComposGrad(VARS2objectivesPlus, VARS2objectivesMinus, grad_norm(APminusBP,args.p) )
+       #find the grad. of ||AP-PB|| w.r.t. P
+        Df = ComposGrad(VARS2objectivesPlus, VARS2objectivesMinus, grad_norm(APminusBP,args.p)) 
+        
+        #Add the grad. of the linear term (if given)
+        if D != None:
+            LIN_OBJ = 0.0
+            for key in D:
+                Df[key] += lamb*D[key]
+                LIN_OBJ += P[key]*D[key]
+
+                 
         Df_mat = dictTo2darray(Df, N)
         
+        #Solve the linear problem via Hungarian
         row_ind, col_ind = linear_sum_assignment(Df_mat)
+    
+        #Compute the duality gap
+        dual_gap = DualGap(P, col_ind, Df)
 
+        #Update variables by taking aconvex combination
         for var in P:
             P[var] = (1-step_size) * P[var]
         for (r, c) in enumerate(col_ind):
             P[(unicode(r), unicode(c))] += step_size
         now = time()
-        trace[t]['OBJ'] = OBJ
+        trace[t]['OBJNOLIN'] = OBJNOLIN
+        trace[t]['OBJ'] = OBJNOLIN + lamb*LIN_OBJ
+        trace[t]['GAP'] = dual_gap
         trace[t]['IT_TIME'] = now - last
         trace[t]['TIME'] = now - tSt
-        print "Iteration %d, iteration time is %f Objective is %f" %(t, now - last, OBJ)
+        print "Iteration %d, iteration time is %f Objective is %f, duality gap is %f" %(t, now - last, OBJNOLIN + lamb*LIN_OBJ, dual_gap)
         last = time()
     return P, trace 
     
@@ -217,22 +245,23 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'CVXOPT Solver for Graph Matching',formatter_class=argparse.ArgumentDefaultsHelpFormatter) 
     parser.add_argument('objectives',type=str,help='File containing objectives.')
     parser.add_argument('N',type=int,help='File to store the results.')
+    parser.add_argument('outfile',type=str,help='Output file')
+    parser.add_argument('--dist',type=str,help='File containing distace file.')
+    parser.add_argument('--lamb', default=0.0, type=float, help='lambda parameter regularizing the linear term.')
     parser.add_argument('--maxiters',default=100,type=int, help='Maximum number of iterations')
-    parser.add_argument('--epsilon', default=1.e-3, type=float, help='The accuracy for cvxopt solver.')
+    parser.add_argument('--epsilon', default=1.e-2, type=float, help='The accuracy for cvxopt solver.')
     parser.add_argument('--p', default=2.5, type=float, help='p parameter in p-norm')
     parser.add_argument('--bucket_name',default='armin-bucket',type=str,help='Bucket name, specify when running on google cloud. Outfile and logfile will be uploaded here.')
     parser.add_argument('--GCP',action='store_true',help='Pass if running on Google Cloud Platform.')
     parser.set_defaults(GCP=False)
 
     args = parser.parse_args()
-    sc = SparkContext(appName='CVX GM',master='local[40]')
-    sc.setLogLevel('OFF')
 
     objectives = {}
     VARS2objectivesPlus = {}
     VARS2objectivesMinus = {}
     for partFile in  glob.glob(args.objectives + "/part*"):
-        print "Now readaiang" + partFile
+        print "Now readaiang " + partFile
         with open(partFile, 'r') as pF:
             for obj_line in pF:
                 (obj, VARS) = eval(obj_line)
@@ -248,8 +277,24 @@ if __name__=="__main__":
                     else:
                         VARS2objectivesMinus[var].append(obj)
                    
+    D = {}
+    for partFile in  glob.glob(args.dist + "/part*"):
+         print "Now readaiang " + partFile
+         with open(partFile, 'r') as pF:
+             for dist_line in pF: 
+                  (var, dist) = eval(dist_line)
+                  D[var]  = dist
+              
 
-    sol, trace = FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, args.N)
+    print len(VARS2objectivesPlus), len(VARS2objectivesMinus)
+
+    sol, trace = FW(objectives=objectives, VARS2objectivesPlus=VARS2objectivesPlus, VARS2objectivesMinus=VARS2objectivesMinus, N=args.N, p=args.p, D=D, lamb = args.lamb, maxiters=args.maxiters, epsilon=args.epsilon)
+    
+    with open(args.outfile + '_trace', 'wb') as fTrace:
+        pickle.dump(trace, fTrace)
+    with open(args.outfile + '_P', 'wb') as fSol:
+        pickle.dump(sol, fSol)
+       
 
     
     

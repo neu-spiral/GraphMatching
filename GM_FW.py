@@ -36,21 +36,31 @@ def Hessian_norm(x,p):
     return Hessian 
            
 
-def dict_grad_Fij(objectives):
-    '''Return the gradianet of AP-PB w.r.t. P as a dict, with keys (obj, var)'''
+def dict_grad_Fij(objectives, Wb=None, N=64):
+    '''Return the gradianet of AP-PB w.r.t. P as a dict, with keys (obj, var), B matrix could be weighted.'''
     grad = {}
 
     for obj in objectives:
         (s1, s2) = objectives[obj]
         for var in s1:
             grad[(obj, var)] = 1.
-        for var in s2:
-            if (obj, var) not in grad:
-                grad[(obj, var)] = -1.
-            else:
-                grad[(obj, var)] = 0.0
+        if Wb==None:
+            for var in s2:
+                if (obj, var) not in grad:
+                    grad[(obj, var)] = -1.
+                else:
+                    grad[(obj, var)] = 0.0
+        else:
+            for k in range(N):
+                node_k = unicode(k)
+                row, col = obj
+                var = (row, node_k)
+                if (obj, var) not in grad:
+                    grad[(obj, var)] = -1.0* Wb[(node_k, col)]
+                else:
+                    grad[(obj, var)] += -1.0* Wb[(node_k, col)]
     return grad
-def eval_Fij(objectives, P):
+def eval_Fij(objectives, P, Wb=None, N=64):
     """Given the vector p return the functions f_1(p), ..., f_m(p) as an m-dimensional vector F"""
     F = {}
     for obj  in objectives:
@@ -58,9 +68,17 @@ def eval_Fij(objectives, P):
         (s1, s2) = objectives[obj]
         for var in s1:
             tmpVal += P[var]
-        for var in s2:
-            tmpVal -= P[var]
-        F[obj] = tmpVal
+        if Wb==None:
+            for var in s2:
+                tmpVal -= P[var]
+            F[obj] = tmpVal
+        else:
+            for  k in range(N):
+                node_k = unicode(k)
+                row, col = obj
+                var = (row, node_k)
+                tmpVal -=  Wb[(node_k, col)]*P[var]
+            F[obj] = tmpVal
     return F
     
 def get_translators(objectives):
@@ -128,17 +146,31 @@ def vec2mat(vec, trans_dict, dim):
         r,c = trans_dict[i]
         mat[r,c] = vec[i,0]
     return mat
-def ComposGrad(VARS2objectivesPlus, VARS2objectivesMinus, g_norm):
+def ComposGrad(VARS2objectivesPlus, VARS2objectivesMinus, g_norm, Wb=None, N=64):
     grad = {}
     for var in VARS2objectivesPlus:
         grad[var] = 0.0
         for obj in VARS2objectivesPlus[var]:
             grad[var] += g_norm[obj]
-    for var in VARS2objectivesMinus:
-        if var not in grad:
-            grad[var] = 0.0
-        for obj in VARS2objectivesMinus[var]: 
-            grad[var] -= g_norm[obj]
+    if Wb==None:
+        for var in VARS2objectivesMinus:
+            if var not in grad:
+                grad[var] = 0.0
+            for obj in VARS2objectivesMinus[var]: 
+                grad[var] -= g_norm[obj]
+    else:
+        for row in range(N):
+            r = unicode(row)
+            for k in range(N):
+                node_k = unicode(k)
+                var = (r, node_k)
+                if var not in grad:
+                    grad[var] = 0.0
+                for col in range(N):
+                    c = unicode(col)
+                    obj = (r,c)
+                    grad[var] -= g_norm[obj]*Wb[(node_k,c)]
+                           
     return grad
 def dictTo2darray(grad, N):
     M = np.zeros((N, N))
@@ -173,7 +205,7 @@ def  DualGap(Var, S, Grad):
     return gap
       
         
-def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lamb=0.0, maxiters=100, epsilon=1.e-2):
+def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lamb=0.0, Wb=None, maxiters=100, epsilon=1.e-2):
     
     
     trace = {} 
@@ -200,11 +232,11 @@ def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lam
 
 
         #Compute objective
-        APminusBP = eval_Fij(objectives, P)
+        APminusBP = eval_Fij(objectives, P, Wb, N)
         OBJNOLIN = vec_norm(APminusBP, args.p)
          
        #find the grad. of ||AP-PB|| w.r.t. P
-        Df = ComposGrad(VARS2objectivesPlus, VARS2objectivesMinus, grad_norm(APminusBP,args.p)) 
+        Df = ComposGrad(VARS2objectivesPlus, VARS2objectivesMinus, grad_norm(APminusBP,args.p), Wb, N) 
         
         #Add the grad. of the linear term (if given)
         if D != None:
@@ -233,12 +265,13 @@ def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lam
         trace[t]['GAP'] = dual_gap
         trace[t]['IT_TIME'] = now - last
         trace[t]['TIME'] = now - tSt
-        print "Iteration %d, iteration time is %f Objective is %f, duality gap is %f" %(t, now - last, OBJNOLIN + lamb*LIN_OBJ, dual_gap)
+        print "Iteration %d, iteration time is %f Objective is %f, Norm is %f, duality gap is %f" %(t, now - last, OBJNOLIN + lamb*LIN_OBJ, OBJNOLIN, dual_gap)
         last = time()
     return P, trace 
     
 def evalPair(pair):
     return (eval(pair[0]), eval(pair[1]))
+    
     
     
 if __name__=="__main__":
@@ -247,6 +280,7 @@ if __name__=="__main__":
     parser.add_argument('N',type=int,help='File to store the results.')
     parser.add_argument('outfile',type=str,help='Output file')
     parser.add_argument('--dist',type=str,help='File containing distace file.')
+    parser.add_argument('--weights',type=str,help='File containing distace file.')
     parser.add_argument('--lamb', default=0.0, type=float, help='lambda parameter regularizing the linear term.')
     parser.add_argument('--maxiters',default=100,type=int, help='Maximum number of iterations')
     parser.add_argument('--epsilon', default=1.e-2, type=float, help='The accuracy for cvxopt solver.')
@@ -285,10 +319,16 @@ if __name__=="__main__":
                   (var, dist) = eval(dist_line)
                   D[var]  = dist
               
+    if args.weights != None:
+        with open(args.weights) as weightF:
+            Wb = pickle.load(weightF)
+    else:
+        Wb = None
+   
 
     print len(VARS2objectivesPlus), len(VARS2objectivesMinus)
 
-    sol, trace = FW(objectives=objectives, VARS2objectivesPlus=VARS2objectivesPlus, VARS2objectivesMinus=VARS2objectivesMinus, N=args.N, p=args.p, D=D, lamb = args.lamb, maxiters=args.maxiters, epsilon=args.epsilon)
+    sol, trace = FW(objectives=objectives, VARS2objectivesPlus=VARS2objectivesPlus, VARS2objectivesMinus=VARS2objectivesMinus, N=args.N, p=args.p, D=D, lamb = args.lamb, Wb=Wb, maxiters=args.maxiters, epsilon=args.epsilon)
     
     with open(args.outfile + '_trace', 'wb') as fTrace:
         pickle.dump(trace, fTrace)

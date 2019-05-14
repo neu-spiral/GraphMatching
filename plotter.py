@@ -88,6 +88,7 @@ if __name__=='__main__':
     data['PRES'] ={}
     data['DRES'] ={}
 
+    minITERS = 10**8
     for filename in myargs.filenames:
         #Added to process based on iteration time rather than total time
         cuuernt_time = 0.0
@@ -99,6 +100,8 @@ if __name__=='__main__':
 	    arg,trace = pickle.load(f)
 
 	print 'Read trace with parameters',arg,'total iterations:',len(trace)
+        if len(trace)<minITERS:
+            minITERS = len(trace)
 	iterations = sorted(trace.keys())
         for iteration in iterations:
             cuuernt_time += trace[iteration]['IT_TIME']/60.0
@@ -134,10 +137,10 @@ if __name__=='__main__':
     	ax.set_ylabel(data_labels[data_label])
         if myargs.time:
     	    ax.set_xlabel(data_labels['TIME'])
-            ax.set_xlim([0, 200])
+            #ax.set_xlim([0, 62])
         else:
             ax.set_xlabel(data_labels['ITERATION'])
-#            ax.set_xlim([0, 61])        
+            ax.set_xlim([0, minITERS])        
         
     	names= [ labels[filename] for filename in myargs.filenames ]
     	plt.legend(lines,names)

@@ -297,17 +297,14 @@ if __name__=="__main__":
 
         if not args.silent or forceComp:
             (oldPrimalResidualQ,oldObjQ)=QXi.joinAndAdapt(ZRDD, args.alpha, rhoQ, checkpoint=chckpnt, forceComp=forceComp)
-            if DEBUG:
-                logger.info("Iteration %d row (Q/Xi) stats: %s" % (iteration,QXi.logstats())) 
+            logger.info("Iteration %d row (Q/Xi) stats: %s" % (iteration,QXi.logstats())) 
             (oldPrimalResidualT,oldObjT)=TPsi.joinAndAdapt(ZRDD, args.alpha, rhoT, checkpoint=chckpnt, forceComp=forceComp)
-            if DEBUG:
-                logger.info("Iteration %d column (T/Psi) stats: %s" % (iteration,TPsi.logstats())) 
+            logger.info("Iteration %d column (T/Psi) stats: %s" % (iteration,TPsi.logstats())) 
             if ParallelSolverClass == ParallelSolver:
                 (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, forceComp=forceComp)
             else:
                 (oldPrimalResidualP,oldObjP)=PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, residual_tol=1.e-06, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
-            if DEBUG:
-                logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
+            logger.info("Iteration %d solver (P/Phi) stats: %s" % (iteration,PPhi.logstats())) 
         else:
             QXi.joinAndAdapt(ZRDD, args.alpha, rhoQ, checkpoint=chckpnt, forceComp=forceComp)
             TPsi.joinAndAdapt(ZRDD, args.alpha, rhoT, checkpoint=chckpnt, forceComp=forceComp)

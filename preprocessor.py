@@ -70,8 +70,9 @@ def hashNodes(color):
 def matchColors(color1,color2,numPartitions=10):
     '''Constructs constraint graph by matching classes indicated by colors.
     '''
-    return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().distinct().partitionBy(numPartitions)
+   # return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().distinct().partitionBy(numPartitions)
 #    return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions)
+    return color1.map(swap).join(color2.map(swap),numPartitions=numPartitions).values().partitionBy(numPartitions).distinct()
 
 
 
@@ -253,6 +254,8 @@ if __name__=="__main__":
             G = matchColors(degree1,degree2,numPartitions=args.N).persist(storage_level)  
                
                 
+               
+                
 	    #G.checkpoint()
         elif args.constraintmethod == 'WL':
 	    color1 = WL(graph1,logger,depth=args.k,numPartitions=args.N) 
@@ -262,11 +265,11 @@ if __name__=="__main__":
             neighbors1 = get_neighborhood(graph1, args.N, args.k).mapValues(lambda l:hash( tuple(l) ) )
             neighbors2 = get_neighborhood(graph2, args.N, args.k).mapValues(lambda l:hash( tuple(l) ) )
             G = matchColors(neighbors1, neighbors2, numPartitions=args.N).persist(storage_level)
-    #    if args.equalize:
-    #        idnetityMap  = [(str(node), str(node)) for node  in range(n_max)]
-    #        idnetityMap = sc.parallelize(idnetityMap).partitionBy(args.N).cache()
-    #        G = G.union(idnetityMap).distinct()
         logger.info('Number of constraints is %d' %G.count())
+        if args.equalize:
+            idnetityMap  = [(str(node), str(node)) for node  in range(n_max)]
+            idnetityMap = sc.parallelize(idnetityMap).partitionBy(args.N).cache()
+            G = G.union(idnetityMap).distinct()
         if args.outputconstraintfile:
             logger.info('Write  constraints')
             safeWrite(G, args.outputconstraintfile, args.driverdump)

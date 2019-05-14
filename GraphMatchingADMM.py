@@ -37,7 +37,10 @@ def testSimplexCondition(rdd,dir='row'):
 
 def evalSolvers(cls_args, P_vals, Phi_vals, stats, dumped_cls):
     solvers_cls = pickle.loads(dumped_cls)
-    return solvers_cls(cls_args[0], cls_args[1]), P_vals, Phi_vals, stats
+    if len(cls_args) == 2:
+        return solvers_cls(cls_args[0], cls_args[1]), P_vals, Phi_vals, stats
+    elif len(cls_args) == 4:
+        return solvers_cls(cls_args[0], cls_args[1], cls_args[2], cls_args[3]), P_vals, Phi_vals, stats
 def evalSolversY(cls_args, P_vals, Y_vals, Phi_vals, Upsilon_vals, stats, dumped_cls, rho_inner):
     solvers_cls = pickle.loads(dumped_cls)
     return solvers_cls(cls_args[0], cls_args[1], rho_inner), P_vals, Y_vals, Phi_vals, Upsilon_vals, stats
@@ -79,6 +82,7 @@ if __name__=="__main__":
     parser.add_argument('--checkpointdir',default='checkpointdir',type=str,help='Directory to be used for checkpointing')
     parser.add_argument('--initRDD',default=None, type=str, help='File name, where the RDDs are dumped.')
     parser.add_argument('--GCP',action='store_true', help='Pass if running on  Google Cloud Platform')
+    parser.add_argument('--hasLinear',action='store_true', help='Pass if adding the linear term.')
     parser.add_argument('--bucketname',type=str,default='armin-bucket',help='Bucket name for storing RDDs on Google Cloud Platform, pass if running on GCP')
 
     parser.add_argument('--dumpRDDs', dest='dumpRDDs', action='store_true',help='Dump auxiliary RDDs beyond Z')
@@ -111,6 +115,8 @@ if __name__=="__main__":
     parser.set_defaults(adaptrho=False)
     parser.add_argument('--adaptrho',dest='adaptrho',action='store_true', help='Adapt the rho parameter throught ADMM iterations.')
 
+
+
     args = parser.parse_args()
 
     SolverClass = eval(args.solver)	
@@ -121,8 +127,9 @@ if __name__=="__main__":
     sc = SparkContext(appName='Parallel Graph Matching with  %s  at %d iterations over %d partitions' % (args.solver,args.maxiter,args.N),conf=configuration)
     #Setting checkpoint dir is nor reuired for localCheckpoint!?
     sc.setCheckpointDir(args.checkpointdir)
-    
 
+
+    
 
     level = "logging."+args.debug
     if args.silent:
@@ -142,7 +149,7 @@ if __name__=="__main__":
     if not DEBUG:
         sc.setLogLevel("OFF")
 
-    has_linear = args.distfile  is not None
+    has_linear = args.distfile  is not None or args.hasLinear
     if not has_linear:
         oldLinObjective = 0.
 
@@ -210,6 +217,7 @@ if __name__=="__main__":
 
        #Resume iterations from prevsiously dumped iterations. 
         ZRDD = sc.textFile(args.initRDD+"_ZRDD").map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        print ZRDD.take(1)
         if ParallelSolverClass == ParallelSolver:
             PPhi_RDD = sc.textFile(args.initRDD+"_PPhiRDD").map(eval).partitionBy(args.N, partitionFunc=identityHash).mapValues(lambda (cls_args, P_vals, Phi_vals, stats): evalSolvers(cls_args, P_vals, Phi_vals, stats, pickle.dumps(SolverClass))).persist(StorageLevel.MEMORY_ONLY)
             PPhi = ParallelSolver(LocalSolverClass=SolverClass, data=objectives, initvalue=uniformweight, N=args.N, rho=args.rhoP, lean=args.lean,silent=args.silent, RDD=PPhi_RDD)
@@ -287,15 +295,15 @@ if __name__=="__main__":
                 PPhi.joinAndAdapt(ZRDD, args.alpha, rhoP, checkpoint=chckpnt, residual_tol=1.e-02, logger=logger, maxiters=args.maxInnerADMMiter, forceComp=forceComp)
 
        #Check row/col sums:
-       # QRDD = QXi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(key, Primal[key]) for key in Primal] ).values()
-       # Qsums = tuple(testSimplexCondition(QRDD) )
-       # logger.info("Iteration %d Q row sums are: Min %s Max %s " % ((iteration,)+ Qsums ) )
-       # logger.info("Iteration %d Q posivity is %f" %(iteration, testPositivity(QRDD) ) )
-       #
-       # TRDD = TPsi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(swap(key), Primal[key]) for key in Primal] ).values()
-       # Tsums = tuple(testSimplexCondition(TRDD) )
-       # logger.info("Iteration %d T col sums are: Min %s Max %s " % ((iteration,)+ Tsums ) )
-       # logger.info("Iteration %d T posivity is %f" %(iteration, testPositivity(TRDD) ) )
+        #QRDD = QXi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(key, Primal[key]) for key in Primal] ).values()
+        #Qsums = tuple(testSimplexCondition(QRDD) )
+        #logger.info("Iteration %d Q row sums are: Min %s Max %s " % ((iteration,)+ Qsums ) )
+        #logger.info("Iteration %d Q posivity is %f" %(iteration, testPositivity(QRDD) ) )
+       ##
+        #TRDD = TPsi.PrimalDualRDD.flatMapValues(lambda (solver, Primal, Dual, stats): [(swap(key), Primal[key]) for key in Primal] ).values()
+        #Tsums = tuple(testSimplexCondition(TRDD) )
+        #logger.info("Iteration %d T col sums are: Min %s Max %s " % ((iteration,)+ Tsums ) )
+        #logger.info("Iteration %d T posivity is %f" %(iteration, testPositivity(TRDD) ) )
         
 
       
@@ -373,7 +381,7 @@ if __name__=="__main__":
         #if not (args.silent or args.lean):
         dump_time = 0.
         if not (args.silent):
-	    if (iteration % args.dump_trace_freq == 0 and iteration>0) or iteration == args.maxiter-1:
+	    if iteration % args.dump_trace_freq == 1 or iteration == args.maxiter-1:
                 dump_st_time = time.time()
 		
                 if args.dumpRDDs:

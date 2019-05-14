@@ -48,6 +48,8 @@ if __name__=='__main__':
     parser.add_argument('--outputdir', default='./figs', type=str,help='output dir')
     parser.add_argument('--objective',default='||AP-PB||_2',type=str, help='objective function to be displayed on y-axis.')
     parser.add_argument('--title', default=None, type=str, help='plots title')
+    parser.add_argument('--lambdas', default=None, type=str, help='lambda parameter')
+    
 
     myargs = parser.parse_args()
     
@@ -56,15 +58,21 @@ if __name__=='__main__':
 
     if myargs.labels:
 	labels = dict(zip(myargs.filenames,myargs.labels.split(',')))	
-        print labels
     else:
 	labels = dict(zip(myargs.filenames,myargs.filenames))	
 
+    if myargs.lambdas:
+        lambdas = dict(zip(myargs.filenames, eval(myargs.lambdas)))
+    else:
+        lambdas = dict(zip(myargs.filenames, len(myargs.filenames)*[0.0]))
+        
+
     
     data ={}
-    data_labels = { 'TIME':'t (min)','OBJ':myargs.objective,'PRES':'PRES','DRES':'DRES'}
+    data_labels = { 'TIME':'t (min)','OBJNOLIN':myargs.objective,'OBJ':'objective','PRES':'PRES','DRES':'DRES'}
     data['TIME']={}
     data['OBJ'] ={}
+    data['OBJNOLIN'] = {}
     data['PRES'] ={}
     data['DRES'] ={}
 
@@ -78,30 +86,33 @@ if __name__=='__main__':
 	    arg,trace = pickle.load(f)
 
 	print 'Read trace with parameters',arg,'total iterations:',len(trace)
-	iterations = sorted(trace.keys())
+	iterations = sorted(trace.keys())[:107]
         for iteration in iterations:
             cuuernt_time += trace[iteration]['IT_TIME']/60.0
             time_steps.append(cuuernt_time)
+            
 
         data['TIME'][filename] = time_steps
        # data['TIME'][filename] = [trace[iteration]['TIME']/60.0 for iteration in iterations]
-        data['OBJ'][filename] = [trace[iteration]['OLDOBJ'] for iteration in iterations]
+        data['OBJ'][filename] = [(trace[iteration]['OLDOBJ'] - trace[iteration]['OLDNOLIN'])*lambdas[filename] + trace[iteration]['OLDNOLIN']  for iteration in iterations]
+        data['OBJNOLIN'][filename] = [trace[iteration]['OLDNOLIN'] for iteration in iterations]
         data['PRES'][filename] = [ (trace[iteration]['PRES']+ trace[iteration]['QRES']+trace[iteration]['TRES'])/3. for iteration in iterations]
         data['DRES'][filename] = [ trace[iteration]['DRES'] for iteration in iterations]
 
     
     
-    for data_label in ['OBJ','PRES','DRES']:
+    for data_label in ['OBJ','OBJNOLIN','PRES','DRES']:
     	fig =plt.figure()
     	ax = fig.add_subplot(1,1,1)
         if myargs.title:
             ax.set_title(myargs.title)
         lines = []
         for (form,filename) in zip(forms[:len(myargs.filenames)],myargs.filenames):
-    	   line, =ax.plot(data['TIME'][filename],data[data_label][filename],form,label=labels[filename])
+    	   line, =ax.plot(data['TIME'][filename],data[data_label][filename],form,label=labels[filename],markevery=1, linewidth=2)
 	   lines = lines + [line]
     	ax.set_ylabel(data_labels[data_label])
     	ax.set_xlabel(data_labels['TIME'])
+        
     	names= [ labels[filename] for filename in myargs.filenames ]
     	plt.legend(lines,names)
     	#ax.set_title(graph+' '+cache )

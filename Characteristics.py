@@ -208,6 +208,7 @@ if __name__ == "__main__":
     if args.fromSnap:
         graph = readSnap(args.graph, sc, minPartitions = args.N).partitionBy(args.N).cache()
 
+        print graph.take(2)
     else:
         lines = sc.textFile(args.graph)
         graph = lines.map(eval).partitionBy(args.N).cache()

@@ -139,7 +139,6 @@ class ParallelSolverPnorm(ParallelSolver):
         PrimalNewDualOldZ = PrimalDualOldZ.mapValues(lambda ((solver,P,Y,Phi,Upsilon,stats),Z): ( solver, P, Y,dict( [ (key,Phi[key]+alpha*(P[key]-Z[key]))  for key in Phi  ]  ),Upsilon, stats,  Z))
         ZbarPrimalDual = PrimalNewDualOldZ.mapValues(lambda (solver,P,Y,Phi,Upsilon,stats, Z): ( solver,P,Y,Phi,Upsilon,stats,dict( [(key, Z[key]-Phi[key]) for key in Z])))
         
- #       print ZbarPrimalDual.values().map(lambda (solver,P,Y,Phi,Upsilon,stats, Z): Z).take(1)
         last = time()
         start_time = time()
         #Start the inner ADMM iterations

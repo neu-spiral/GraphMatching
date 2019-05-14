@@ -9,6 +9,7 @@ from helpers import swap,clearFile,identityHash,pretty,projectToPositiveSimplex,
 from debug import logger,dumpPPhiRDD,dumpBasic
 from pprint import pformat
 import os
+from helpers import readSnap
 import shutil
 def testPositivity(rdd):
     '''Test whether vals are positive
@@ -91,6 +92,12 @@ if __name__=="__main__":
     parser.add_argument('--no-dumpRDDs', dest='dumpRDDs', action='store_false',help='Do not dump auxiliary RDDs beyond Z')
     parser.set_defaults(dumpRDDs=True)
 
+
+
+    snap_group = parser.add_mutually_exclusive_group(required=False)
+    snap_group.add_argument('--fromsnap', dest='fromsnap', action='store_true',help="Inputfiles are from SNAP")
+    snap_group.add_argument('--notfromsnap', dest='fromsnap', action='store_false',help="Inputfiles are pre-formatted")
+    parser.set_defaults(fromsnap=True)
 	
     parser.set_defaults(silent=False)
     parser.add_argument('--silent',dest="silent",action='store_true',help='Run in efficient, silent mode, with final Z as sole output. Skips  computation of objective value and residuals duning exection and supresses both monitoring progress logging and trace dumping. Overwrites verbosity level to ERROR')
@@ -112,10 +119,6 @@ if __name__=="__main__":
     parser.add_argument('--adaptrho',dest='adaptrho',action='store_true', help='Adapt the rho parameter throught ADMM iterations.')
 
 
-    snap_group = parser.add_mutually_exclusive_group(required=False)
-    snap_group.add_argument('--fromsnap', dest='fromsnap', action='store_true',help="Inputfiles are from SNAP")
-    snap_group.add_argument('--notfromsnap', dest='fromsnap', action='store_false',help="Inputfiles are pre-formatted")
-    parser.set_defaults(fromsnap=True)
 
     args = parser.parse_args()
 
@@ -175,20 +178,21 @@ if __name__=="__main__":
     if not args.fromsnap:
         G = sc.textFile(args.constraintfile, minPartitions=args.N).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
     else:
-        G = readSnap(args.constraintfile,sc,minPartitions=args.N)
+        G = sc.textFile(args.constraintfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
 
 
 
 
     if not args.objectivefile:
         #Read Graphs		
-        if not args.fromsnap:
+        if args.fromsnap:
+            graph1 = readSnap(args.graph1,sc,minPartitions=args.N)
+            graph2 = readSnap(args.graph2,sc,minPartitions=args.N)
+        else:
             graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval).partitionBy(args.N)
             graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval).partitionBy(args.N)
-        else:
-            graph1 = readSnap(args.graph1, sc, minPartitions=args.N)
-            graph2 = readSnap(args.graph2, sc, minPartitions=args.N)
 
+        print graph1.take(2)
 	#Extract nodes 
 	nodes1 = graph1.flatMap(lambda (u,v):[u,v]).distinct()
 	nodes2 = graph2.flatMap(lambda (u,v):[u,v]).distinct()

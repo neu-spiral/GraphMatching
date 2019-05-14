@@ -410,7 +410,7 @@ def General_LASSO_test(D, y, rho):
 class LocalSolver():
 
     @classmethod
-    def initializeLocalVariables(cls,Sij,initvalue,N,rho):
+    def initializeLocalVariables(cls,Sij,initvalue,N,rho,prePartFunc=None):
 
 #        if logger.getEffectiveLevel()==logging.DEBUG:
 #	     logger.debug(Sij_test(G,graph1,graph2,Sij))
@@ -436,8 +436,11 @@ class LocalSolver():
    
             return [(splitIndex,(cls(objectives,rho),P,Phi,stats))]
 
-        partitioned =  Sij.partitionBy(N)
-	createVariables = partitioned.mapPartitionsWithIndex(createLocalPandPhiVariables)
+        if prePartFunc==None:
+            partitioned =  Sij.partitionBy(N)
+        else:
+            partitioned =  Sij.partitionBy(N, partitionFunc=prePartFunc)
+	createVariables = partitioned.mapPartitionsWithIndex(createLocalPandPhiVariables, preservesPartitioning=True)
         PPhiRDD = createVariables.partitionBy(N,partitionFunc=identityHash).cache()
 	#PPhiRDD = Sij.mapPartitionsWithIndex(createLocalPandPhiVariables).cache()
 
@@ -713,7 +716,7 @@ class LocalL1Solver(LocalSolver):
 class LocalLSSolver(LocalSolver):
     """A class for updating P variables in the inner ADMM"""
     @classmethod
-    def initializeLocalVariables(cls,Sij,initvalue,N,rho,rho_inner):
+    def initializeLocalVariables(cls,Sij,initvalue,N,rho,rho_inner,prePartFunc=None):
 
         if logger.getEffectiveLevel()==logging.DEBUG:
              logger.debug(Sij_test(G,graph1,graph2,Sij))
@@ -745,9 +748,13 @@ class LocalLSSolver(LocalSolver):
 
             return [(splitIndex,(cls(objectives,rho,rho_inner),P,Y,Phi,Upsilon,stats))]
 
-        partitioned =  Sij.partitionBy(N)
-        createVariables = partitioned.mapPartitionsWithIndex(createLocalPandPhiVariables)
-        PYPhiUpsilonRDD = createVariables.partitionBy(N,partitionFunc=identityHash).cache()
+        if prePartFunc==None:
+            partitioned =  Sij.partitionBy(N)
+        else:
+            partitioned =  Sij.partitionBy(N, partitionFunc=prePartFunc)
+        createVariables = partitioned.mapPartitionsWithIndex(createLocalPandPhiVariables, preservesPartitioning=True)
+        PYPhiUpsilonRDD = createVariables.cache()
+       # PYPhiUpsilonRDD = createVariables.partitionBy(N,partitionFunc=identityHash).cache()
         #PPhiRDD = Sij.mapPartitionsWithIndex(createLocalPandPhiVariables).cache()
         return PYPhiUpsilonRDD
         

@@ -8,7 +8,7 @@ import argparse
 import os
 
 
-plt.rc('font', family='serif') 
+#plt.rc('font', family='serif') 
 plt.rc('font', serif='Times New Roman') 
 plt.rc('font', size=22) 
 
@@ -49,12 +49,26 @@ if __name__=='__main__':
     parser.add_argument('--objective',default='||AP-PB||_2',type=str, help='objective function to be displayed on y-axis.')
     parser.add_argument('--title', default=None, type=str, help='plots title')
     parser.add_argument('--lambdas', default=None, type=str, help='lambda parameter')
+<<<<<<< HEAD
     
+=======
+
+    axisgroup = parser.add_mutually_exclusive_group(required=False)
+    axisgroup.add_argument('--time', dest='time', action='store_true',help='Plot w.r.t. time.')
+    axisgroup.add_argument('--iter', dest='time', action='store_false',help='Plot w.r.t. iteration number.')
+    parser.set_defaults(time=True)    
+   
+    scalegroup = parser.add_mutually_exclusive_group(required=False)
+    scalegroup.add_argument('--log', dest='log', action='store_true',help='Use log scale for y axis')
+    scalegroup.add_argument('--lin', dest='log', action='store_false',help='Use lin scale for x axis.')
+    parser.set_defaults(log=False)
+>>>>>>> 027b5c9481fda2434e700d1ef96836be57f898c6
 
     myargs = parser.parse_args()
     
     if not os.path.exists(myargs.outputdir):
 	os.mkdir(myargs.outputdir)
+
 
     if myargs.labels:
 	labels = dict(zip(myargs.filenames,myargs.labels.split(',')))	
@@ -67,10 +81,18 @@ if __name__=='__main__':
         lambdas = dict(zip(myargs.filenames, len(myargs.filenames)*[0.0]))
         
 
+<<<<<<< HEAD
     
     data ={}
     data_labels = { 'TIME':'t (min)','OBJNOLIN':myargs.objective,'OBJ':'objective','PRES':'PRES','DRES':'DRES'}
+=======
+
+    
+    data ={}
+    data_labels = { 'TIME':'t (min)','ITERATION':'iteration','OBJNOLIN':myargs.objective,'OBJ':'objective','PRES':'PRES','DRES':'DRES'}
+>>>>>>> 027b5c9481fda2434e700d1ef96836be57f898c6
     data['TIME']={}
+    data['ITERATION']={}
     data['OBJ'] ={}
     data['OBJNOLIN'] = {}
     data['PRES'] ={}
@@ -80,6 +102,7 @@ if __name__=='__main__':
         #Added to process based on iteration time rather than total time
         cuuernt_time = 0.0
         time_steps = []
+        steps = []
 	print 'Processing...', filename
 
 	with open(filename,'rb') as f:
@@ -90,9 +113,14 @@ if __name__=='__main__':
         for iteration in iterations:
             cuuernt_time += trace[iteration]['IT_TIME']/60.0
             time_steps.append(cuuernt_time)
+<<<<<<< HEAD
+=======
+            steps.append(iteration)
+>>>>>>> 027b5c9481fda2434e700d1ef96836be57f898c6
             
 
         data['TIME'][filename] = time_steps
+        data['ITERATION'][filename] = steps
        # data['TIME'][filename] = [trace[iteration]['TIME']/60.0 for iteration in iterations]
         data['OBJ'][filename] = [(trace[iteration]['OLDOBJ'] - trace[iteration]['OLDNOLIN'])*lambdas[filename] + trace[iteration]['OLDNOLIN']  for iteration in iterations]
         data['OBJNOLIN'][filename] = [trace[iteration]['OLDNOLIN'] for iteration in iterations]
@@ -104,14 +132,32 @@ if __name__=='__main__':
     for data_label in ['OBJ','OBJNOLIN','PRES','DRES']:
     	fig =plt.figure()
     	ax = fig.add_subplot(1,1,1)
+        if data_label == 'OBJ':
+            if myargs.log:
+                ax.set_yscale('log')
         if myargs.title:
             ax.set_title(myargs.title)
         lines = []
         for (form,filename) in zip(forms[:len(myargs.filenames)],myargs.filenames):
+<<<<<<< HEAD
     	   line, =ax.plot(data['TIME'][filename],data[data_label][filename],form,label=labels[filename],markevery=1, linewidth=2)
 	   lines = lines + [line]
     	ax.set_ylabel(data_labels[data_label])
     	ax.set_xlabel(data_labels['TIME'])
+=======
+           if myargs.time:
+    	       line, =ax.plot(data['TIME'][filename],data[data_label][filename],form,label=labels[filename],markevery=10, linewidth=2)
+           else:
+               line, =ax.plot(data['ITERATION'][filename],data[data_label][filename],form,label=labels[filename],markevery=10, linewidth=2)
+	   lines = lines + [line]
+    	ax.set_ylabel(data_labels[data_label])
+        if myargs.time:
+    	    ax.set_xlabel(data_labels['TIME'])
+            ax.set_xlim([0, 200])
+        else:
+            ax.set_xlabel(data_labels['ITERATION'])
+#            ax.set_xlim([0, 61])        
+>>>>>>> 027b5c9481fda2434e700d1ef96836be57f898c6
         
     	names= [ labels[filename] for filename in myargs.filenames ]
     	plt.legend(lines,names)

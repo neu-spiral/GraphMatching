@@ -41,6 +41,10 @@ def distance(characteristics1, characteristics2, constraints=None, N=20, Equaliz
             .cache()
 
     return distances
+def npy2RDD(arr, sc, N=10):
+    "Return an rdd of the numpy array arr"
+    return sc.parallelize([(str(key), attr) for  (key, attr) in enumerate(arr)]).partitionBy(N).cache()
+     
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Finds distance between nodes of two graphs',
@@ -58,6 +62,7 @@ if __name__ == "__main__":
                               '(graph1_node, graph2_node).', default=None)
     parser.add_argument('--time_outputfile', default = None, help = 'file to store runtime')
     parser.add_argument('--equalize',action='store_true', help='If passed makes sure that the graphs have the same number of nodes by randomly ignoring some  nodes from the larger graph.')
+    parser.add_argument('--npy', action='store_true', help='Pass if reading characteristics from npy file outputed from GNN')
     parser.add_argument('--graphName', default = None, help = 'name of graph for runtime file')
     parser.add_argument('--N',type=int, default=20, help = 'Level of Parallelism')
     args = parser.parse_args()
@@ -71,8 +76,13 @@ if __name__ == "__main__":
         constraints = sc.textFile(args.connection_graph).map(eval).partitionBy(args.N).cache()
     else:
         constraints = None
-    characteristics1 = sc.textFile(args.chars1).map(eval).partitionBy(args.N).cache()
-    characteristics2 = sc.textFile(args.chars2).map(eval).partitionBy(args.N).cache()
+    if not args.npy:
+        characteristics1 = sc.textFile(args.chars1).map(eval).partitionBy(args.N).cache()
+        characteristics2 = sc.textFile(args.chars2).map(eval).partitionBy(args.N).cache()
+    else:
+        characteristics1 = npy2RDD(np.load(args.chars1), sc, args.N)
+        print characteristics1.take(1)
+        characteristics2 = npy2RDD(np.load(args.chars2), sc, args.N)
 
     start_time = time()
     distance = distance(characteristics1=characteristics1, characteristics2=characteristics2,constraints=constraints, N=args.N, Equalize=args.equalize)

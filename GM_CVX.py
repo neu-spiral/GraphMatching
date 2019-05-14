@@ -1,7 +1,7 @@
 import argparse
+import glob
 import cvxopt
 from cvxopt import matrix, spmatrix, solvers
-from pyspark import SparkContext
 from numpy import sign
 from time import time
 from numpy.linalg import matrix_rank
@@ -11,7 +11,6 @@ def grad_norm(x,p):
     """Return gradient for p-norm function g(x)=\|x\|_p"""
     m, one = x.size
     norm_p = norm(x,p) 
-    print norm_p, type(norm_p)
     grad = matrix(0.0, (m,1))
     for i in range(m):
         grad[i] = sign(x[i]) * (abs(x[i])/norm_p)**(p-1.)
@@ -126,22 +125,35 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description = 'CVXOPT Solver for Graph Matching',formatter_class=argparse.ArgumentDefaultsHelpFormatter) 
     parser.add_argument('objectives',type=str,help='File containing objectives.')
     parser.add_argument('outfile',type=str,help='File to store the results.')
-    parser.add_argument('--N',default=40,type=int, help='Level of parallelism')
-    parser.add_argument('--p', default=1.5, type=float, help='p parameter in p-norm')
+    parser.add_argument('--maxiters',default=100,type=int, help='Maximum number of iterations')
+    parser.add_argument('--epsilon', default=1.e-3, type=float, help='The accuracy for cvxopt solver.')
+    parser.add_argument('--p', default=2.5, type=float, help='p parameter in p-norm')
     parser.add_argument('--bucket_name',default='armin-bucket',type=str,help='Bucket name, specify when running on google cloud. Outfile and logfile will be uploaded here.')
     parser.add_argument('--GCP',action='store_true',help='Pass if running on Google Cloud Platform.')
     parser.set_defaults(GCP=False)
 
     args = parser.parse_args()
-    sc = SparkContext(appName='CVX GM',master='local[40]')
+    #sc = SparkContext(appName='CVX GM',master='local[40]')
     
-    sc.setLogLevel("OFF")
+   # sc.setLogLevel("OFF")
 
-  
+    #Stting solver options  
     solvers.options['show_progress'] = True
- 
+    solvers.options['abstol'] = args.epsilon
+    solvers.options['reltol'] = args.epsilon
+    solvers.options['feastol'] = args.epsilon
+    solvers.options['maxiters'] = args.maxiters 
 
-    objectives = dict( sc.textFile(args.objectives, minPartitions=args.N).map(eval).collect() )
+    objectives = {}
+    for partFile in  glob.glob(args.objectives + "/part*"):
+        with open(partFile, 'r') as pF:
+            for obj_line in pF:
+                   (obj, VARS) = eval(obj_line)
+                   objectives[obj] = VARS 
+            
+        
+        
+    #objectives = dict( sc.textFile(args.objectives, minPartitions=args.N).map(eval).collect() )
     #Map the given objectives to vector elements. 
     transl_vars2i, transl_objs2i, transl_i2vars, transl_i2objs = get_translators(objectives)
     m = len(transl_objs2i)
@@ -159,9 +171,7 @@ if __name__=="__main__":
         return (f, Df, H) 
    #build simplex constraints
     rowObjs, colObjs = get_row_col_objs(transl_vars2i)
-    print rowObjs, colObjs
     A,b = build_constraints(transl_vars2i, rowObjs, colObjs)
-    print matrix_rank(A), A.size
    #build positivity constratints
     G = spmatrix(-1.0, range(n), range(n)) 
     h = matrix(0., (n,1))

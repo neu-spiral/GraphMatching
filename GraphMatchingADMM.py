@@ -109,7 +109,7 @@ if __name__=="__main__":
     parser.set_defaults(leanInner=False)
    
 
-    parser.set_defaults(directed=True)
+    parser.set_defaults(directed=False)
     parser.add_argument('--directed', dest='directed', action='store_true',help='Input graphs are directed, i.e., (a,b) does not imply the presense of (b,a).')
 
     parser.set_defaults(driverdump=False)
@@ -121,6 +121,11 @@ if __name__=="__main__":
 
 
     args = parser.parse_args()
+    #If starting from the initial point (not checkpinted results), record the pre-processing time. 
+    if args.initRDD == None:
+        last_time = time.time()
+
+
 
     SolverClass = eval(args.solver)	
     ParallelSolverClass = eval(args.parallelSolver)
@@ -150,7 +155,7 @@ if __name__=="__main__":
     logger.info('Level set to: '+str(level)) 
 
     if not DEBUG:
-        sc.setLogLevel("OFF")
+        sc.setLogLevel("WARN")
 
     has_linear = args.distfile  is not None or args.hasLinear
     if not has_linear:
@@ -178,12 +183,14 @@ if __name__=="__main__":
     if not args.fromsnap:
         G = sc.textFile(args.constraintfile, minPartitions=args.N).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
     else:
-        G = sc.textFile(args.constraintfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
+        G = readSnap(args.constraintfile,sc,minPartitions=args.N)
+    #else:
+    #    G = sc.textFile(args.constraintfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
 
 
 
 
-    if not args.objectivefile:
+    if not args.objectivefile and args.initRDD == None:
         #Read Graphs		
         if args.fromsnap:
             graph1 = readSnap(args.graph1,sc,minPartitions=args.N)
@@ -191,8 +198,9 @@ if __name__=="__main__":
         else:
             graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval).partitionBy(args.N)
             graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval).partitionBy(args.N)
+        #Read constraints 
+        G = readSnap(args.constraintfile,sc,minPartitions=args.N)
 
-        print graph1.take(2)
 	#Extract nodes 
 	nodes1 = graph1.flatMap(lambda (u,v):[u,v]).distinct()
 	nodes2 = graph2.flatMap(lambda (u,v):[u,v]).distinct()
@@ -209,6 +217,7 @@ if __name__=="__main__":
 	    dumpBasic(G,graph1,graph2)
 
 	objectives = SijGenerator(graph1,graph2,G,args.N).persist(StorageLevel.MEMORY_ONLY)
+        logger.info('The number of objectives is %d.' %objectives.count())
 
     else:
 	objectives = sc.textFile(args.objectivefile, minPartitions=args.N).map(lambda x:eval(x)).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
@@ -290,8 +299,10 @@ if __name__=="__main__":
     rhoP = args.rhoP
     rhoQ = args.rhoQ
     rhoT = args.rhoT
-    start_timing = time.time()	
-    last_time = start_timing
+ 
+    #If continuing from checkpointed result, do not record the pre-processing time. 
+    if args.initRDD != None:
+        last_time =  time.time() 
     dump_time = 0.
     for iteration in range(args.maxiter):
         #checkpoint he RDDs preiodically 
@@ -410,7 +421,7 @@ if __name__=="__main__":
         #if not (args.silent or args.lean):
         dump_time = 0.
         if not (args.silent):
-	    if iteration % args.dump_trace_freq == 1 or iteration == args.maxiter-1:
+	    if (iteration % args.dump_trace_freq == 0 and iteration>0) or iteration == args.maxiter-1:
                 dump_st_time = time.time()
 		
                 if args.dumpRDDs:

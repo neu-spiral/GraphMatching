@@ -12,6 +12,7 @@ import argparse
 from pyspark import SparkContext
 from operator import add,and_
 from proxOp import pnormOp,pnorm_proxop, L1normOp, EuclidiannormOp
+from LocalSolvers import LocalL1Solver, LocalL2Solver
 
 
 class ParallelSolver():
@@ -26,7 +27,10 @@ class ParallelSolver():
         self.SolverClass=LocalSolverClass
         if RDD==None:
             if D==None:
-                self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(Sij=data,initvalue=initvalue,N=N,rho=rho, prePartFunc=prePartFunc).cache()    #LocalSolver class should implement class method initializeLocalVariables
+                if LocalSolverClass==LocalL1Solver or LocalSolverClass==LocalL2Solver:
+                    self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(Sij=data,initvalue=initvalue,N=N,rho=rho, prePartFunc=prePartFunc).cache()    #LocalSolver class should implement class method initializeLocalVariables
+                else:
+                    self.PrimalDualRDD = LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho,D,lambda_linear).cache()
             else:
                 self.PrimalDualRDD =  LocalSolverClass.initializeLocalVariables(data,initvalue,N,rho,D,lambda_linear).cache()
         else:

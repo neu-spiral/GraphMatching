@@ -205,7 +205,7 @@ def  DualGap(Var, S, Grad):
     return gap
       
         
-def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lamb=0.0, Wb=None, maxiters=100, epsilon=1.e-2):
+def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lamb=0.0, Wb=None, maxiters=100, epsilon=1.e-2, ONLY_lin=False, initP=None):
     
     
     trace = {} 
@@ -215,15 +215,20 @@ def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lam
 
     
     #Initial value 
-    P = {}
-    for i in range(N):
-        for j in range(N):
-            if i==j:
-                P[(unicode(i), unicode(j))] = 1.0
-            else:
-                P[(unicode(i), unicode(j))] = 0.0
+    if initP==None:
+        P = {}
+        for i in range(N):
+            for j in range(N):
+                if i==j:
+                    P[(unicode(i), unicode(j))] = 1.0
+                else:
+                    P[(unicode(i), unicode(j))] = 0.0
+    else:
+        P = initP
+    print SumRowCol(P, N)
               
 
+   
     last = time()
     print "Done preprocessing...\n Time is: %f (s)" %(last-tSt)
     for t in range(maxiters):
@@ -232,11 +237,18 @@ def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lam
 
 
         #Compute objective
-        APminusBP = eval_Fij(objectives, P, Wb, N)
-        OBJNOLIN = vec_norm(APminusBP, args.p)
+        if not ONLY_lin:
+            APminusBP = eval_Fij(objectives, P, Wb, N)
+            OBJNOLIN = vec_norm(APminusBP, args.p)
+        else:
+            OBJNOLIN = 0.0
          
        #find the grad. of ||AP-PB|| w.r.t. P
-        Df = ComposGrad(VARS2objectivesPlus, VARS2objectivesMinus, grad_norm(APminusBP,args.p), Wb, N) 
+        if not ONLY_lin:
+            Df = ComposGrad(VARS2objectivesPlus, VARS2objectivesMinus, grad_norm(APminusBP,args.p), Wb, N) 
+        #If ONLY_lin passed, ignore the term ||AP-PB||_p
+        else:
+            Df = dict([(key, 0.0) for key in P])
         
         #Add the grad. of the linear term (if given)
         if D != None:
@@ -285,9 +297,10 @@ if __name__=="__main__":
     parser.add_argument('--maxiters',default=100,type=int, help='Maximum number of iterations')
     parser.add_argument('--epsilon', default=1.e-2, type=float, help='The accuracy for cvxopt solver.')
     parser.add_argument('--p', default=2.5, type=float, help='p parameter in p-norm')
+    parser.add_argument('--initP',default=None, type=str, help="Initial solution P.")
     parser.add_argument('--bucket_name',default='armin-bucket',type=str,help='Bucket name, specify when running on google cloud. Outfile and logfile will be uploaded here.')
-    parser.add_argument('--GCP',action='store_true',help='Pass if running on Google Cloud Platform.')
-    parser.set_defaults(GCP=False)
+    parser.add_argument('--ONLY_lin',action='store_true',help='Pass to ignore ||AP-PB||_p')
+    parser.set_defaults(ONLY_lin=False)
 
     args = parser.parse_args()
 
@@ -310,14 +323,17 @@ if __name__=="__main__":
                         VARS2objectivesMinus[var] = [obj]
                     else:
                         VARS2objectivesMinus[var].append(obj)
-                   
-    D = {}
-    for partFile in  glob.glob(args.dist + "/part*"):
-         print "Now readaiang " + partFile
-         with open(partFile, 'r') as pF:
-             for dist_line in pF: 
-                  (var, dist) = eval(dist_line)
-                  D[var]  = dist
+          
+    if args.dist != None:         
+        D = {}
+        for partFile in  glob.glob(args.dist + "/part*"):
+            print "Now readaiang " + partFile
+            with open(partFile, 'r') as pF:
+                for dist_line in pF: 
+                    (var, dist) = eval(dist_line)
+                    D[var]  = dist
+    else:
+        D = None
               
     if args.weights != None:
         with open(args.weights) as weightF:
@@ -327,8 +343,19 @@ if __name__=="__main__":
    
 
     print len(VARS2objectivesPlus), len(VARS2objectivesMinus)
+    if args.ONLY_lin:
+        ONLY_lin= True
+    else:
+        ONLY_lin = False
 
-    sol, trace = FW(objectives=objectives, VARS2objectivesPlus=VARS2objectivesPlus, VARS2objectivesMinus=VARS2objectivesMinus, N=args.N, p=args.p, D=D, lamb = args.lamb, Wb=Wb, maxiters=args.maxiters, epsilon=args.epsilon)
+    if args.initP != None:
+        with open(args.initP,'r') as trF:
+            initP = pickle.load(trF)
+    else:
+        initP = None
+        
+
+    sol, trace = FW(objectives=objectives, VARS2objectivesPlus=VARS2objectivesPlus, VARS2objectivesMinus=VARS2objectivesMinus, N=args.N, p=args.p, D=D, lamb = args.lamb, Wb=Wb, maxiters=args.maxiters, epsilon=args.epsilon, ONLY_lin=ONLY_lin, initP=initP)
     
     with open(args.outfile + '_trace', 'wb') as fTrace:
         pickle.dump(trace, fTrace)

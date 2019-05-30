@@ -275,7 +275,8 @@ if __name__=="__main__":
             #safeWrite(G,args.outputconstraintfile,args.driverdump)
     else:
         logger.info('Read  constraints')
-        G=sc.textFile(args.inputconstraintfile,minPartitions=args.N).map(eval)
+       # G=sc.textFile(args.inputconstraintfile,minPartitions=args.N).map(eval)
+        G = readSnap(args.inputconstraintfile,sc,minPartitions=args.N)
 
     if args.outputobjectivefile:
         logger.info('Generate objectives')

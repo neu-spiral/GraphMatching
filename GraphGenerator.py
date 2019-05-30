@@ -30,6 +30,7 @@ if __name__=="__main__":
     parser.add_argument('--graph_p',default=0.10, type=float, help='Probability, used in erdos_renyi, watts_strogatz')
     parser.add_argument('output',help="outputfile")
     parser.add_argument('--sparseG',action='store_true',help='When passed create graphs with the probability set to 0.3*log(graph_size)/graph_size')
+    parser.add_argument('--incPerm',action='store_true',help='Pass if you want to include a permutation matrix in the support.')
 
     parser.set_defaults(sparseG=False)
     args = parser.parse_args()
@@ -39,7 +40,7 @@ if __name__=="__main__":
 
 
     if args.sparseG:
-        graph_p = 0.3*np.log(args.graph_size)/args.graph_size
+        graph_p = (1.0+args.graph_p)*np.log(args.graph_size)/args.graph_size
     else:
         graph_p = args.graph_p
     
@@ -92,7 +93,15 @@ if __name__=="__main__":
 
     logging.info('Generating graph: ' + args.graph_type )
     G = graphGenerator()
+
+    if args.incPerm:
+        for i in range(args.graph_size-1):
+            G.add_edge(i, i+1)
+        G.add_edge(args.graph_size-1, 0)
     logging.info('Saving to file: ' + args.output )
     with open(args.output,'w') as f:
         for e in format(G):
-	    f.write(str(e)+'\n')	
+            
+	   # f.write(str(e)+'\n')	
+            f.write("%d %d\n" %(e[0], e[1]))
+             

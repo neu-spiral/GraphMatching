@@ -122,9 +122,9 @@ if __name__=='__main__':
     for data_label in ['OBJ','OBJNOLIN','PRES','DRES']:
     	fig =plt.figure()
     	ax = fig.add_subplot(1,1,1)
-        if data_label == 'OBJ':
-            if myargs.log:
-                ax.set_yscale('log')
+     #   if data_label == 'OBJ':
+        if myargs.log:
+            ax.set_yscale('log')
         if myargs.title:
             ax.set_title(myargs.title)
         lines = []

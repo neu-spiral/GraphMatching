@@ -195,3 +195,9 @@ def EuclidianPO(x, k, norm_X):
         out = (1 - k/norm_X) * x
     return out 
         
+def vec_norm(vec, p):
+    ''' Return the p-noorm of vec which is a dictionary'''
+    tmp = 0.0
+    for key in vec:
+        tmp += abs(vec[key])**p
+    return tmp**(1.0/p)

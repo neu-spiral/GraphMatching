@@ -1,11 +1,12 @@
 #from cvxopt import spmatrix,matrix,solvers
 #from cvxopt.solvers import qp,lp
 #from scipy.sparse import coo_matrix,csr_matrix
+import scipy.linalg
 from helpers import cartesianProduct
 
 
 
-from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex,readfile, writeMat2File,NoneToZero
+from helpers import identityHash,swap,mergedicts,identityHash,projectToPositiveSimplex,readfile, writeMat2File,NoneToZero, vec_norm
 import numpy as np
 from numpy.linalg import solve as linearSystemSolver,inv
 import logging
@@ -27,6 +28,96 @@ def SijGenerator(graph1,graph2,G,N):
     #Do an "outer join"
     Sij = Sij1.cogroup(Sij2,N).mapValues(lambda (l1,l2):(list(set(l1)),list(set(l2))))
     return Sij
+
+def BuilCoeeficientsMat(objectives, variables, Wa=None, Wb=None, N=64):
+    objectives = dict(objectives)
+    translate_ij2coordinates = {}
+    P = len(objectives)
+
+
+    
+    #Create a dictioanry for translating variables to coordinates.
+    translate_ij2coordinates = dict([(var, i) for (i,var) in enumerate(variables)] )
+    n_i = len(translate_ij2coordinates)
+    #Create the structure matrix D.
+    D = np.matrix( np.zeros((P, n_i)))
+    row = 0
+    for key in objectives:
+        obj_i, obj_j = key
+        if Wa ==None:
+            [S1, S2] = objectives[key]
+            for var in S1:
+                var_k, var_j = var
+                D[row, translate_ij2coordinates[var]] = +1.
+        else:
+            for k in range(N):
+                var_k = unicode(k)
+                var = var_k, obj_j
+                D[row, translate_ij2coordinates[var]] = Wa[(obj_i, var_k)]
+        if Wb==None:
+            for var in  S2:
+                var_i, var_k = var
+                if  D[row, translate_ij2coordinates[var]]==0:
+                    D[row, translate_ij2coordinates[var]] = -1.
+                else:
+                    D[row, translate_ij2coordinates[var]] -= 1.0
+        else:
+            for k in range(N):
+                var_k = unicode(k)
+                var = obj_i, var_k
+                D[row, translate_ij2coordinates[var]] -= Wb[(var_k, obj_j)]
+        row = row+1
+    translate_coordinates2ij = dict([(translate_ij2coordinates[ij], ij) for ij in translate_ij2coordinates])
+    return D, translate_ij2coordinates, translate_coordinates2ij
+def compNormAPminusPB(objectives, P, Wa=None, Wb=None):
+    norm_1 = 0.0
+    for key in objectives:
+        tmp = 0.0
+        obj_i, obj_j = key
+        [S1, S2] = objectives[key]
+        if Wa == None:
+            for var in S1:
+                var_k, var_j = var
+                tmp += P[var]
+        else:
+            for k in range(N):
+                var_k = unicode(k)
+                var = var_k, obj_j
+                tmp +=  Wa[(obj_i, var_k)]*P[var]
+        if Wb==None:
+            for var in  S2:
+                var_i, var_k = var
+                tmp -= P[var]
+        else:
+            for k in range(N):
+                var_k = unicode(k)
+                var = obj_i, var_k
+                tmp -= P[var]*Wb[(var_k, obj_j)] 
+        norm_1 += abs(tmp)
+    return norm_1
+                              
+         
+def RowColObjectivesGenerator(G, initvalue, R=True):
+    Primal = dict()
+    Dual = dict()
+    objectives = dict()
+
+    for edge in G:
+        row,column = edge
+        Primal[edge] = initvalue
+        Dual[edge] = 0.0
+        if R:
+            if row in objectives:
+                objectives[row].append(column)
+            else:
+                objectives[row] = [column]
+        else:
+            if column in objectives:
+                objectives[column].append(row)
+            else:
+                objectives[column] = [row]
+
+    return objectives, Primal, Dual
 def General_LASSO(D, y, rho):
     """
         Solve the problm:
@@ -525,7 +616,8 @@ class FastLocalL2Solver(LocalSolver):
 
     def solve(self,zbar=None): 
  
-	q = matrix(0.0,size=(self.nump, 1))
+#	q = matrix(0.0,size=(self.nump, 1))
+        q = np.matrix(np.zeros((self.nmp, 1)))
 	if zbar!= None:
 	    for key,ppos in self.pvarpos.iteritems():
 		q[ppos] = zbar[key]
@@ -605,7 +697,8 @@ class LocalL2Solver(LocalSolver):
     def solve(self,zbar=None,rho=None): 
 	if rho is None:
 	   rho = self.rho  
-	q = matrix(0.0,size=(self.nump, 1))
+	#q = np.matrix(0.0,size=(self.nump, 1))
+        q = np.matrix(np.zeros((self.nump, 1)))
 	if zbar!= None:
 	    for key,ppos in self.pvariables.iteritems():
 		q[ppos] = rho*zbar[key]
@@ -1245,211 +1338,166 @@ class LocalColumnProjectionSolver(LocalSolver):
     def __repr__(self):
         return '(' + str(self.objectives) + ',' + str(self.rho) + ',' + str(self.D_local) + ',' + str(self.lambda_linear) + ')'
 
+ 
 
 if __name__=="__main__":
-    parser = argparse.ArgumentParser(description = 'Local Solver Test',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-#    parser.add_argument('D', help='File contatining the matrix D')
-#    parser.add_argument('y', help='File containing the vector y')
-#    parser.add_argument('outfile', help='File to store the sol')
-#    parser.add_argument('--rho', help='Values of rho', type=float,default=1.) 
-#    parser.add_argument('objectives',type=str,help='File containing objectives.')
-#    parser.add_argument('graph1',type=str, help = 'File containing first graph')
-#    parser.add_argument('graph2',type=str, help = 'File containing second graph')
-#    parser.add_argument('--objectives',type=str,help = 'File containing objectives')
-#    parser.add_argument('--weight',type=float, help='Uniform weight passed to the vector values')
-#    parser.add_argument('G',help = 'Constraint graph')
-#    parser.add_argument('--N',default=40,type=int, help='Level of parallelism')
-#    parser.add_argument('--rho',default=1.0,type=float, help='rho')
-#
-#
+    parser = argparse.ArgumentParser(description = 'Serial ADMM Solver for Graph Matching (p=1)',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('objectives',type=str,help='File containing objectives.')
+    parser.add_argument('variables',type=str,help='File containing the variables support.')
+    parser.add_argument('outfile',type=str,help='Output file')
+     
+    
+    parser.add_argument('--N',default=64,type=int,help='Graph size.')
+    parser.add_argument('--dist',type=str,help='File containing distace file.')
+    parser.add_argument('--weights',type=str,help='File containing distace file.')
+    parser.add_argument('--lamb', default=0.0, type=float, help='lambda parameter regularizing the linear term.')
+    parser.add_argument('--maxiters',default=100,type=int, help='Maximum number of iterations')
+    parser.add_argument('--epsilon', default=1.e-2, type=float, help='The accuracy for cvxopt solver.')
+    parser.add_argument('--rho', default=5.0, type=float, help='Rho parameter in ADMM.')
     args = parser.parse_args()
-    sc = SparkContext(appName='Local Solver Test')
+  
+    sc = SparkContext()
+    sc.setLogLevel('OFF')
+     
+    tSt = time()
+     #Generate objectives
+    objectives = sc.textFile(args.objectives).map(eval).collect() 
+    variables = sc.textFile(args.variables).map(eval).collect()
+
+
+    #Initialize row and col variables.
+    row_objectives, Q, Xi  = RowColObjectivesGenerator(variables, 1.0/args.N, True)
+    col_objectives, T, Psi = RowColObjectivesGenerator(variables, 1.0/args.N, False)
+    P = dict([(key, 1.0/args.N) for key in variables ])
+    Phi = dict([(key, 0.0) for key in variables ])
+    Z  = dict([(key, 1.0/args.N) for key in variables ])    
+
+    #Load distance for the linear term.
+    if args.dist != None:
+        D = dict( sc.textFile(args.dist).map(eval).collect())
+    else:
+        D = None
+
+    #load weights
+    if args.weights != None:
+        with open(args.weights) as weightF:
+            Wb = pickle.load(weightF)
+    else:
+        Wb = None
     
-    sc.setLogLevel("OFF")
+    #Build the matrix for generlized LASSO problem 
+    D_LASSO, trans_var2coord, trans_coord2var = BuilCoeeficientsMat(objectives=objectives, variables=variables, Wa=None, Wb=Wb, N=args.N)
 
 
+    trace = {}
+    print "Starting main ADMM iterations. Preprocessing done in %.2f (s)" %(time()-tSt)
+  
+    last = time()
+    for t in  range(args.maxiters):
+        trace[t] = {}
+        Zbar_P = {}
+        Zbar_Q = {}
+        Zbar_T = {}
+        #Adapt dual variables
+        for key in Z:
+            Phi[key] +=  P[key]-Z[key]
+            Xi[key] += Q[key]-Z[key]
+            Psi[key] += T[key]-Z[key]
+            Zbar_P[key] = Z[key] - Phi[key]
+            Zbar_Q[key] = Z[key] - Xi[key]
+            Zbar_T[key] = Z[key] - Psi[key]
+            if D != None: 
+                Zbar_Q[key] -= 0.5 * args.lamb * D[key] / args.rho
+                Zbar_T[key] -= 0.5 * args.lamb * D[key] /args.rho
 
+  
+        #Update P via generlaized LASSO
+        y = np.matrix( np.zeros((len(variables),1)))
+        for key in Z:
+            y[trans_var2coord[key]] = Z[key]-Phi[key]
+        sol_P = General_LASSO(D_LASSO, y, 1./args.rho)
+        OBJNOLIN = np.linalg.norm(D_LASSO*sol_P, 1)
+        
+        LINOBJ = 0.0
+        if D != None:
+             for key in D:
+                 LINOBJ += D[key]*P[key]
+        P = dict([(trans_coord2var[coord], float(sol_P[coord])) for coord in trans_coord2var])
+        
+ 
+        #Update Q via projection
+        Q = {}
+        for row in row_objectives:
+            zrow = {}
+            for col in row_objectives[row]:
+                var = (row, col)
+                zrow[var] = Zbar_Q[var] 
+            sol_row = projectToPositiveSimplex(zrow, 1.0)
+            for key in sol_row:
+               Q[key] = sol_row[key] 
+
+        #Update T via projection
+        T = {}
+        for col in col_objectives:
+            zcol = {}
+            for row in col_objectives[col]:
+                var = (row, col)
+                zcol[var] = Zbar_T[var]
+            sol_col = projectToPositiveSimplex(zcol, 1.0)
+            for key in sol_col:
+                T[key] = sol_col[key]
+
+        #Update Z via averaging
+        OldZ = Z
+        Z = {}
+        for key in OldZ: 
+            Z[key] = P[key]+Phi[key] + Q[key]+Xi[key] + T[key]+Psi[key] 
+            Z[key] = Z[key]/3.0
+
+        #Compute primal and dual residuals
+        primal_resid = 0.0
+        dual_resid = 0.0
+        for key in Z:
+            primal_resid += (Z[key]-P[key])**2
+            primal_resid += (Z[key]-Q[key])**2
+            primal_resid += (Z[key]-T[key])**2
+            dual_resid += (Z[key]-OldZ[key])**2
+        primal_resid  = np.sqrt(primal_resid)
+        dual_resid = np.sqrt(dual_resid)
+        now = time()
+        trace[t]['PRES'] = primal_resid
+        trace[t]['DRES'] = dual_resid
+        trace[t]['OBJNOLIN'] = OBJNOLIN
+        trace[t]['OBJ'] = OBJNOLIN + args.lamb*LINOBJ
+        print "Iteration %d, PRES is %.4f DRES is %.4f, OBJ is %.4f, norm is %.4f, iteration time is %f" %(t, primal_resid, dual_resid, OBJNOLIN + args.lamb*LINOBJ, OBJNOLIN, now-last)
+        last = time()
+        
+    print "Finished ADMM iterations, saving the results."
+    with open(args.outfile + '_trace', 'w') as outF:
+        pickle.dump(trace, outF)
+    with open(args.outfile + '_P', 'w') as outF:
+        pickle.dump(P, outF)
+        
             
-
-
-
-    
-
-
-
-#    objectives = dict( sc.textFile(args.objectives, minPartitions=args.N).map(eval).collect() )
-    
-#    
-#    graph1 = sc.textFile(args.graph1,minPartitions=args.N).map(eval)
-#    graph2 = sc.textFile(args.graph2,minPartitions=args.N).map(eval)
-#    G = sc.textFile(args.G,minPartitions=args.N).map(eval)
-#
-    
-#    
-#    start = time()	
-#    L1 = LocalL1Solver(objectives,args.rho)
-#    end = time()
-#    print "L1 initialization in ",end-start,'seconds.'
-    
-#    tstart = time()
-#
-#
-#    objs = dict(objectives)
-#    n_i = 0
-#    translate_ij2coordinates = {}
-#    P = len(objectives)
-#    for key in objs:
-#        [S1, S2] = objs[key]
-#        for var in S1:
-#           if var  not in translate_ij2coordinates:
-#               translate_ij2coordinates [var] = n_i
-#               n_i = n_i+1
-#        for var in S2:
-#           if var not in translate_ij2coordinates:
-#               translate_ij2coordinates [var] = n_i
-#               n_i = n_i+1
-#    D = np.matrix( np.zeros((P, n_i)))
-#    row = 0
-#    for key in objs:
-#        [S1, S2] = objs[key]
-#        for var in S1:
-#            D[row, translate_ij2coordinates[var]] = +1.
-#        for var in  S2:
-#            D[row, translate_ij2coordinates[var]] = -1.   
-#        row = row+1
-#           
-#    
-#    tend = time()
-#    Z = dict([(i,0.1) for i in range(n_i)])
-#    for i in Z:
-        
        
+            
+                 
         
-   ###Test LocalLpsolver, which is a least-square solver 
-#    rho = args.rho
-#    rho_inner = args.rho
-#    np.random.seed(1993)
-#    start = time()  
-#    Lp = LocalLpSolver(objectives,args.rho)
-#    end = time()
-#    print "Lp initialization in ",end-start,'seconds.'
-#    
-#   
-#    Pvars, Yvars = Lp.variables()
-#    zbar = dict([ (var,float(np.random.random(1))) for var in Pvars])
-#    Upsilon = dict([ (var,float(np.random.random(1))) for var in Yvars])
-#    Y = dict([ (var,float(np.random.random(1))) for var in Yvars])
-#    newp, stats =  Lp.solve(Y, zbar, Upsilon, rho, rho_inner)
-#    print newp, stats
-# 
-#    #Solve via qp solver
-#    p_i = len(Yvars)
-#    n_i = len(Pvars)
-#    D = matrix(Lp.D)
-#    Ybar = dict( [(key, Y[key]+Upsilon[key]) for key in Y])
-#    Ybar_vec  = matrix(0.0, (p_i,1))
-#    for i in range(p_i):
-#        Ybar_vec[i] = Ybar[Lp.translate_coordinates2ij_Y[i]]
-#        
-#    A = spmatrix(rho, range(n_i), range(n_i)) + rho_inner * D.T * D
-#    b = matrix(0.0, (n_i,1))
-#    for i in range(n_i):
-#        b[i] = -rho * zbar[Lp.translate_coordinates2ij[i]] 
-#    b = b - rho_inner * D.T * Ybar_vec
-#    x = coneqp(P=A, q=b)['x']
-#    newp_cvx = dict( [(key, x[Lp.translate_ij2coordinates[key]]) for key in Pvars])
-#    print "Difference is %f" %sum([(newp[key]-newp_cvx[key])**2 for key in newp])
-#    
-#
-#    
-# 
+
+        
+    
+    
+    
 
     
-#    
+     
+
+      
+
+      
+     
+
+
     
-#    np.random.seed(1993)
-#    start = time()	
-#    L1 = LocalL1Solver(objectives,args.rho)
-#    end = time()
-#    print "L1 initialization in ",end-start,'seconds.'
-#
-#
-#    n = len(L1.variables())
-#    Z = dict([ (var,float(np.random.random(1))) for var in L1.variables()])
-#
-#    #Write the structure matrix, as well as the vector Z
-#    D = L1.D
-#    print D.shape
-#    y = np.matrix( np.zeros((L1.num_variables,1)))
-#    for var in Z:
-#        y[L1.translate_ij2coordinates[var]] = Z[var]
-#    writeMat2File('data/D_y/D_part',D)
-#    writeMat2File('data/D_y/y_part',y)
-##    
-#    start = time()	
-#    newp,stats= L1.solve(Z, args.rho)
-#    end = time()
-#    print 'L1 solve in',end-start,'seconds, stats:',stats
-#
-#
-#    start = time()
-#    L1_Old = LocalL1Solver_Old(objectives,args.rho)
-#    end = time()
-#    print "L1 Old initialization in ",end-start,'seconds.'
-#
-#    start = time()      
-#    newp_Old,stats= L1_Old.solve(Z, args.rho)
-#    end = time()
-#    print 'L1 Old solve in',end-start,'seconds, stats:',stats
-   
+
     
-#	
-#	
-#    start = time()	
-#    newp,stats= FL2.solve(Z)
-#    end = time()
-#    print 'FL2 solve in',end-start,'seconds, stats:',stats
-
-
-
-
-
-
- #   np.random.seed(1993)
- #   P = 100
- #   N = 80
- #   D = np.matrix(np.random.random(P*N)).reshape((P,N))
- #   y = np.matrix( np.random.random(N) ).reshape((N,1))
- #   writeMat2File('data/D', D)
- #   writeMat2File('data/y', y)
-
-
- #   tstart = time()
- #   sol =   General_LASSO(D, y, 0.42)
- #   tend = time()
- #   print sol
- #   print "Solved in %f seconds" %(tend-tstart)
-
-
-#    tstart = time()
-#    sol2 =   General_LASSO_test(D, y, 0.1)
-#    tend = time()
-#    print "New Solved in %f seconds" %(tend-tstart)
-
- #   print np.linalg.norm(sol-sol2,2)
-    
- #   
- #   
-
-
-#    D, p, N = readfile( args.D)
-#    y, N_1, one = readfile( args.y)
-#    rho = args.rho
-#    if N != N_1:
-#        print "Dimensions do not match."  
-#    D = np.matrix(D).reshape((p,N))
-#    y = np.matrix(y).reshape((N, 1))
-#    sol, u, dual_obj =   General_LASSO(D, y, rho)
-#    fp = open(args.outfile,'w')
-#    fp.write(str(dual_obj))
-#    fp.close() 

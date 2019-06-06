@@ -134,7 +134,7 @@ if __name__=='__main__':
            else:
                line, =ax.plot(data['ITERATION'][filename],data[data_label][filename],form,label=labels[filename],markevery=10, linewidth=2)
 	   lines = lines + [line]
-   # 	ax.set_ylabel(data_labels[data_label])
+    	ax.set_ylabel(data_labels[data_label])
         if myargs.time:
     	    ax.set_xlabel(data_labels['TIME'])
             #ax.set_xlim([0, 62])

@@ -199,9 +199,16 @@ def SumRowCol(P, N):
 def  DualGap(Var, S, Grad):
     gap = 0.0
     for key in Var:
-        gap += Var[key]*Grad[key]
+######################
+        try: 
+            gap += Var[key]*Grad[key]
+        except KeyError:
+            gap += 0.0
     for  (r, c) in enumerate(S):
-        gap -= Grad[(unicode(r), unicode(c))]
+        try:
+            gap -= Grad[(unicode(r), unicode(c))]
+        except:
+            gap += 0.0
     return gap
       
         
@@ -219,13 +226,13 @@ def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lam
         P = {}
         for i in range(N):
             for j in range(N):
-                if i==j:
+  ##########################
+                if j==i+1 or (j==0 and j==N-1):
                     P[(unicode(i), unicode(j))] = 1.0
                 else:
                     P[(unicode(i), unicode(j))] = 0.0
     else:
         P = initP
-    print SumRowCol(P, N)
               
 
    
@@ -256,10 +263,12 @@ def FW(objectives, VARS2objectivesPlus, VARS2objectivesMinus, N, p,  D=None, lam
             for key in D:
                 Df[key] += lamb*D[key]
                 LIN_OBJ += P[key]*D[key]
+        else:
+            LIN_OBJ = 0.0
 
                  
         Df_mat = dictTo2darray(Df, N)
-        
+
         #Solve the linear problem via Hungarian
         row_ind, col_ind = linear_sum_assignment(Df_mat)
     
@@ -307,6 +316,7 @@ if __name__=="__main__":
     objectives = {}
     VARS2objectivesPlus = {}
     VARS2objectivesMinus = {}
+    stLoad = time()
     for partFile in  glob.glob(args.objectives + "/part*"):
         print "Now readaiang " + partFile
         with open(partFile, 'r') as pF:
@@ -341,6 +351,7 @@ if __name__=="__main__":
     else:
         Wb = None
    
+    endLoad = time()
 
     print len(VARS2objectivesPlus), len(VARS2objectivesMinus)
     if args.ONLY_lin:
@@ -357,8 +368,9 @@ if __name__=="__main__":
 
     sol, trace = FW(objectives=objectives, VARS2objectivesPlus=VARS2objectivesPlus, VARS2objectivesMinus=VARS2objectivesMinus, N=args.N, p=args.p, D=D, lamb = args.lamb, Wb=Wb, maxiters=args.maxiters, epsilon=args.epsilon, ONLY_lin=ONLY_lin, initP=initP)
     
+    
     with open(args.outfile + '_trace', 'wb') as fTrace:
-        pickle.dump(trace, fTrace)
+        pickle.dump((endLoad-stLoad, trace), fTrace)
     with open(args.outfile + '_P', 'wb') as fSol:
         pickle.dump(sol, fSol)
        

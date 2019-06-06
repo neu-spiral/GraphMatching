@@ -46,7 +46,7 @@ if __name__=='__main__':
                    help='pickled files to be processed')
     parser.add_argument('--labels',  type=str,default=None ,help='Comma separated labels to be used in figures')
     parser.add_argument('--outputdir', default='./figs', type=str,help='output dir')
-    parser.add_argument('--objective',default='||AP-PB||_2',type=str, help='objective function to be displayed on y-axis.')
+    parser.add_argument('--objective',default='$\|AP-PB\|_2$',type=str, help='objective function to be displayed on y-axis.')
     parser.add_argument('--title', default=None, type=str, help='plots title')
     parser.add_argument('--lambdas', default=None, type=str, help='lambda parameter')
 
@@ -134,7 +134,7 @@ if __name__=='__main__':
            else:
                line, =ax.plot(data['ITERATION'][filename],data[data_label][filename],form,label=labels[filename],markevery=10, linewidth=2)
 	   lines = lines + [line]
-    	ax.set_ylabel(data_labels[data_label])
+   # 	ax.set_ylabel(data_labels[data_label])
         if myargs.time:
     	    ax.set_xlabel(data_labels['TIME'])
             #ax.set_xlim([0, 62])

@@ -1,0 +1,25 @@
+#!/bin/bash 
+#SBATCH --nodes=1
+#SBATCH --time=20:00:00
+#SBATCH --job-name=GM
+#SBATCH --tasks=1
+#SBATCH --exclusive 
+#SBATCH --output=slurm-logs/GM%j.out
+#SBATCH --error=slurm-logs/GM%j.err
+
+module load spark/2.3.2-hadoop2.7
+module load python/2.7.15
+
+
+resume="${13}"
+echo $resume
+
+if [ "$resume" = false ]; then
+ spark-submit --master   "${14}"  --executor-memory 450g --driver-memory 400g --conf "spark.akka.frameSize=1024" --conf "spark.driver.maxResultSize=20G"   --py-files proxOp.py,helpers.py,helpers_GCP.py,LocalSolvers.py,debug.py,ParallelSolvers.py GraphMatchingADMM.py $1 $2  $3 --graph1  $4 --graph2 $5  --checkpointdir $6 --N $7 --Nrowcol $7 --logfile  $8  --checkpoint_freq 2 --maxiter $9 --solver "${10}" --parallelSolver "${11}" --p "${12}"  --rho_inner 10. --maxInnerADMMiter 60   --dump_trace_freq 50   --rhoP 1  --rhoT 5  --rhoQ 5 --alpha 1  --leanInner   #--objectivefile "${15}"   # --silent --leanInner  --lean
+
+
+else
+    spark-submit --master   "${14}"   --executor-memory 450g --driver-memory 400g --conf "spark.akka.frameSize=1024" --conf "spark.driver.maxResultSize=20G"   --py-files proxOp.py,helpers.py,helpers_GCP.py,LocalSolvers.py,debug.py,ParallelSolvers.py GraphMatchingADMM.py $1 $2  $3 --graph1  $4 --graph2 $5  --checkpointdir $6 --N $7 --Nrowcol $7 --logfile  $8  --checkpoint_freq 2 --maxiter $9 --solver "${10}" --parallelSolver "${11}" --p "${12}"  --rho_inner 10. --maxInnerADMMiter 60   --dump_trace_freq 50   --rhoP 1  --rhoT 5  --rhoQ 5 --alpha 1  --leanInner   --initRDD $3 # --objectivefile "${15}"
+
+fi
+

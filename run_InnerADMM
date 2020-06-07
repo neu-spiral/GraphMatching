@@ -1,0 +1,26 @@
+#!/bin/bash
+
+
+GRAPH1=ER20_0.1
+#GRAPH2=$2
+iter=200
+#PSolver=$4
+#p=$5
+
+
+for GRAPH2 in ER20_0.5  ER20_0.2 ER20_0.1
+do
+    for p in 1 #2.5
+    do 
+       PSolver=ParallelSolver1norm
+           sbatch -p ioannidis batch_InnerADMM data/$GRAPH1/objectives_$GRAPH2"_all" data/$GRAPH1/$GRAPH2"_all"  data/logfiles/"InnerADMMM_"$GRAPH$GRAPH2"p"$p".log" $PSolver  $p $iter data/traces/"InnerADMMM_"$PSolver$GRAPH2$GRAPH"p"$p data/RDDs/"InnerADMMM_"$PSolver$GRAPH2$GRAPH$p true 
+    done
+   # p=1
+   # PSolver=ParallelSolver1norm
+   # sbatch -p ioannidis batch_InnerADMM data/$GRAPH1/objectives_$GRAPH2"_all" data/$GRAPH1/$GRAPH2"_all"  data/logfiles/"InnerADMMM_"$GRAPH$GRAPH2"p"$p".log" $PSolver  $p $iter data/traces/"InnerADMMM_"$PSolver$GRAPH2$GRAPH"p"$p data/RDDs/"InnerADMMM_"$PSolver$GRAPH2$GRAPH$p false
+    
+   #  p=2
+   #  PSolver=ParallelSolver2norm
+   #  sbatch -p ioannidis batch_InnerADMM data/$GRAPH1/objectives_$GRAPH2"_all" data/$GRAPH1/$GRAPH2"_all"  data/logfiles/"InnerADMMM_"$GRAPH$GRAPH2"p"$p".log" $PSolver  $p $iter data/traces/"InnerADMMM_"$PSolver$GRAPH2$GRAPH"p"$p data/RDDs/"InnerADMMM_"$PSolver$GRAPH2$GRAPH$p false
+
+done

@@ -1,0 +1,71 @@
+#!/bin/bash
+
+#SBATCH --nodes=1
+#SBATCH --job-name=GMSynth
+#SBATCH --tasks=1
+#SBATCH --exclusive 
+#SBATCH --output=slurm-logs/GM%j.out
+#SBATCH --error=slurm-logs/GM%j.err
+
+
+
+
+
+GRAPH1=$1
+GRAPH2=$2
+iter=1
+N=$4
+PSolver=ParallelSolver2norm
+LSolver=LocalLSSolver
+p=2
+prepF=$3 #Other choices WL5 or WL4 or all, neighbor
+resume=$5
+#masterIP=spark://10.99.252.65:7077 # 
+masterIP=$6
+
+if [ "$masterIP" = local[56] ];then
+    clstr=local
+    ulimit -u 40000
+elif [ "$masterIP" = "spark://10.99.252.65:7077" ];then
+    clstr=Cluster
+elif [ "$masterIP" = local[40] ];then
+    clstr=local40
+    ulimit -u 40000
+elif [ "$masterIP" = local[30] ];then
+    clstr=local30
+    ulimit -u 40000
+elif [ "$masterIP" = local[20] ];then
+    clstr=local20
+    ulimit -u 40000 
+elif [ "$masterIP" = local[10] ];then
+     clstr=local10
+    ulimit -u 40000
+elif [ "$masterIP" = local[1] ];then
+     clstr=local1
+    ulimit -u 40000
+fi
+
+echo $GRAPH1
+g1=$(echo $GRAPH1 | awk '{split($0,g,"/"); print g[2]}')
+g2=$(echo $GRAPH2 | awk '{split($0,g,"/"); print g[2]}')
+G=$(echo $prepF | awk '{split($0,g,"/"); print g[2]}')
+echo $masterIP
+
+
+if [ "$resume" = false ]; then
+ ./synt_iter_batch_GM  data/synthetic/$prepF    data/traces/"GM_"$clstr$PSolver$LSolver$g1$g2$Gf"p"$p data/RDDs/"GM_"$clstr$PSolver$LSolver$g1$g2$Gf$p  data/synthetic/$GRAPH1 data/synthetic/$GRAPH2  checkpointdir  $N data/logfiles/"GM_"$clstr$PSolver$LSolver$g1$g2$Gf"p"$p $iter $LSolver  $PSolver $p   $resume $masterIP  #data/syntheticObjectives/$g1$g2$G
+fi
+
+for i in `seq 1 4`;
+do
+    echo running for $i time
+
+      ./synt_iter_batch_GM  data/synthetic/$prepF    data/traces/"GM_"$clstr$PSolver$LSolver$g1$g2$Gf"p"$p data/RDDs/"GM_"$clstr$PSolver$LSolver$g1$g2$Gf$p  data/synthetic/$GRAPH1 data/synthetic/$GRAPH2  checkpointdir  $N data/logfiles/"GM_"$clstr$PSolver$LSolver$g1$g2$Gf"p"$p $iter $LSolver  $PSolver $p true $masterIP #data/syntheticObjectives/$g1$g2$G
+done
+
+
+
+
+
+
+

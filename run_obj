@@ -1,0 +1,16 @@
+#!/bin/bash
+
+G1=$1
+G2=$2
+G=$3
+method=all
+N=$4
+
+
+g1=$(echo $G1 | awk '{split($0,g,"/"); print g[2]}')
+g2=$(echo $G2 | awk '{split($0,g,"/"); print g[2]}')
+g=$(echo $G | awk '{split($0,g,"/"); print g[2]}')
+
+
+
+sbatch --mem 50g -p ioannidis --time 20:00:00 genObj  data/synthetic/$G1 data/synthetic/$G2  data/synthetic/$G $N  data/syntheticObjectives/$g1$g2$g

@@ -1,0 +1,46 @@
+#!/bin/bash
+
+#SBATCH --nodes=1
+#SBATCH --job-name=GM_cpy
+#SBATCH --tasks=1
+#SBATCH --output=slurm-logs/GM%j.out
+#SBATCH --error=slurm-logs/GM%j.err
+
+GRAPH1=$1
+GRAPH2=$2
+iter=1
+N=$3
+PSolver=ParallelSolver
+LSolver=LocalL2Solver
+p=2
+prepMod=WL5 #Other choices WL5 or WL4 or all, neighbor
+
+resume=$4
+linear=false
+lambda_lin=0.0
+dist_mode=M3 #or GNN
+masterIP=$5
+
+ulimit -u 10000 
+if [ "$resume" = false ]; then
+  ./iter_batch_GM_cpy  data/$GRAPH1/$GRAPH2"_"$prepMod    data/traces/"GM_LinTerm"$dist_mode$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2$prepMod"p"$p"_N"$N  data/RDDs/"GM_LinTerm"$dist_mode$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2$prepMod$p"_N"$N  data/$GRAPH1/objectives_$GRAPH2"_"$prepMod checkpointdir  $N data/logfiles/"GM_LinTerm"$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2$prepMod"p"$p"_N"$N $iter $LSolver  $PSolver $p  false  $linear data/$GRAPH1/Dist_$GRAPH2$dist_mode $lambda_lin $masterIP
+fi
+
+
+for i in `seq 1 4`;
+do
+    echo running for $i time 
+  ./iter_batch_GM_cpy  data/$GRAPH1/$GRAPH2"_"$prepMod    data/traces/"GM_LinTerm"$dist_mode$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2$prepMod"p"$p"_N"$N  data/RDDs/"GM_LinTerm"$dist_mode$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2$prepMod$p"_N"$N  data/$GRAPH1/objectives_$GRAPH2"_"$prepMod checkpointdir  $N data/logfiles/"GM_LinTerm"$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2$prepMod"p"$p"_N"$N $iter $LSolver  $PSolver $p  true   $linear data/$GRAPH1/Dist_$GRAPH2$dist_mode $lambda_lin   $masterIP
+done 
+#for i in `seq 1 10`;
+#do
+
+#echo $i
+#./iter_batch_GM  data/$GRAPH1/$GRAPH2"_"$prepMod    data/traces/"GM_adapRho_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N  data/RDDs/"GM_adapRho_"$PSolver$LSolver$GRAPH1$GRAPH2$p"_N"$N  data/$GRAPH1/objectives_$GRAPH2"_"$prepMod checkpointdir  $N data/logfiles/"GM_adapRho_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N $iter $LSolver  $PSolver $p  $resume
+
+#done
+
+
+
+
+

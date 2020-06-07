@@ -1,0 +1,22 @@
+#!/bin/bash
+
+
+GRAPH1=$1
+GRAPH2=$2
+iter=1
+N=$3
+PSolver=ParallelSolver2norm
+LSolver=LocalLSSolver
+p=2
+prepMod=all #Other choices WL5 or WL4 or all, neighbor
+resume=$4
+
+#for i in `seq 1 100`;
+#do
+    sbatch -p ioannidis batch_GM  data/$GRAPH1/$GRAPH2"_"$prepMod    data/traces/"GM_"$PSolver$LSolver$GRAPH2$GRAPH"p"$p data/RDDs/"GM_"$PSolver$LSolver$GRAPH2$GRAPH$p  data/$GRAPH1/objectives_$GRAPH2"_"$prepMod checkpointdir  $N data/logfiles/"GM_"$PSolver$LSolver$GRAPH2$GRAPH"p"$p $iter $LSolver  $PSolver $p  $resume 
+#done
+
+
+
+
+

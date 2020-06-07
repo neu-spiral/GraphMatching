@@ -1,0 +1,19 @@
+#!/bin/bash
+
+G1=$1
+G2=$2
+method=WL
+k=$3
+N=$4
+clr1=$5
+clr2=$6
+if [ "$method" = "neighbor" ] ||  [ "$method" = "degree" ] ||  [ "$method" = "WL" ]; then
+    sbatch -p ioannidis -w c3097 --time 24:00:00 --mem 50g prep data/$G1/graph data/$G2/graph data/$G1/$G2"_"$method$k $N data/$G1/objectives_$G2"_"$method$k $k $method
+
+elif [ "$method" = "exog" ]; then
+     sbatch -p ioannidis -w c3097 --time 24:00:00 --mem 50g prep data/$G1/graph data/$G2/graph data/$G1/$G2"_"$method $N data/$G1/objectives_$G2"_"$method $k $method data/$G1/$clr1 data/$G2/$clr2
+
+else
+
+    sbatch -p ioannidis  --time 24:00:00  --mem 5g prep  data/$G1/graph data/$G2/graph data/$G1/$G2"_"$method $N data/$G1/objectives_$G2"_"$method $k $method
+fi

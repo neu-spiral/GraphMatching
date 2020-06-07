@@ -1,0 +1,45 @@
+#!/bin/bash
+
+#SBATCH --nodes=1
+#SBATCH --job-name=GM_part
+#SBATCH --tasks=1
+#SBATCH --exclusive
+#SBATCH --output=slurm-logs/GM%j.out
+#SBATCH --error=slurm-logs/GM%j.err
+
+GRAPH1=$1
+GRAPH2=$2
+iter=1
+N=$3
+PSolver=ParallelSolver2norm
+LSolver=LocalLSSolver
+p=2
+prepMod=degree0  #Other choices WL5 or WL4 or all, neighbor
+resume=$4
+linear=true 
+lambda_lin=$5
+dist_mode=M2
+
+ulimit -u 10000 
+if [ "$resume" = false ]; then
+  ./iter_partitioned_batch_GM  data/$GRAPH1/$GRAPH2"_"$prepMod    data/traces/"GM_partitioned_LinTerm"$dist_mode$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N  data/RDDs/"GM_partitioned_LinTerm"$dist_mode$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2$p"_N"$N  data/$GRAPH1/objectives_$GRAPH2"_"$prepMod checkpointdir  $N data/logfiles/"GM_partitioned_LinTerm"$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N $iter $LSolver  $PSolver $p  false  $linear data/$GRAPH1/Dist_$GRAPH2$dist_mode $lambda_lin data/$GRAPH1/partitions$N"_VAR".json  data/$GRAPH1/partitions$N"_OBJ".json
+fi
+
+
+for i in `seq 1 200`;
+do
+    echo running for $i time 
+  ./iter_partitioned_batch_GM  data/$GRAPH1/$GRAPH2"_"$prepMod    data/traces/"GM_partitioned_LinTerm"$dist_mode$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N  data/RDDs/"GM_partitioned_LinTerm"$dist_mode$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2$p"_N"$N  data/$GRAPH1/objectives_$GRAPH2"_"$prepMod checkpointdir  $N data/logfiles/"GM_partitioned_LinTerm"$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N $iter $LSolver  $PSolver $p  true   $linear data/$GRAPH1/Dist_$GRAPH2$dist_mode $lambda_lin  data/$GRAPH1/partitions$N"_VAR".json data/$GRAPH1/partitions$N"_OBJ".json
+done 
+#for i in `seq 1 10`;
+#do
+
+#echo $i
+#./iter_batch_GM  data/$GRAPH1/$GRAPH2"_"$prepMod    data/traces/"GM_adapRho_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N  data/RDDs/"GM_adapRho_"$PSolver$LSolver$GRAPH1$GRAPH2$p"_N"$N  data/$GRAPH1/objectives_$GRAPH2"_"$prepMod checkpointdir  $N data/logfiles/"GM_adapRho_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N $iter $LSolver  $PSolver $p  $resume
+
+#done
+
+
+
+
+

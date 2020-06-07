@@ -1,4 +1,5 @@
 import numpy as np
+import json
 import sys,argparse,logging,datetime
 import networkx.algorithms.matching as mm
 import networkx as nx
@@ -16,6 +17,12 @@ def readSnap(file,sc,minPartitions=10):
 		.map(lambda x: x.split())\
                 .filter(lambda edge:len(edge)==2)
 		#.map(lambda (u,v):(hash(u),hash(v)))
+def readJSON(f, sc, N):
+    '''Read a JSON file, return a key value RDD'''
+    with open(f, 'r') as myfile:
+        data=eval(myfile.read())
+    return sc.parallelize(data.items()).partitionBy(N).mapValues(lambda colors_list: hash(str(set(colors_list)))).cache()
+    
 	
 
 def WL(graph,logger,depth = 10,numPartitions=10,storage_level=StorageLevel.MEMORY_ONLY):
@@ -110,7 +117,9 @@ if __name__=="__main__":
     parser.add_argument('graph1',help = 'File containing first graph')
     parser.add_argument('graph2',help = 'File containing second graph')
     parser.add_argument('--outputconstraintfile',default='None',help ="File for constraint graph. ")
-    parser.add_argument('--constraintmethod',default='degree', help='Constraint generation method',choices=['degree','all','WL','neighbor'])
+    parser.add_argument('--constraintmethod',default='degree', help='Constraint generation method',choices=['degree','all','WL','neighbor','exog'])
+    parser.add_argument('--colors1',type=str,help="JSON file containing colors for graph 1.")
+    parser.add_argument('--colors2',type=str,help="JSON file containing colors for graph 2.")
     parser.add_argument('--debug',default='INFO', help='Debug level',choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument('--N',default=8,type=int, help='Number of partitions')
     parser.add_argument('--degreedistance',default=0,type=int, help='Distance of degrees')
@@ -263,6 +272,12 @@ if __name__=="__main__":
             neighbors1 = get_neighborhood(graph1, args.N, args.k).mapValues(lambda l:hash( tuple(l) ) )
             neighbors2 = get_neighborhood(graph2, args.N, args.k).mapValues(lambda l:hash( tuple(l) ) )
             G = matchColors(neighbors1, neighbors2, numPartitions=args.N).persist(storage_level)
+        elif args.constraintmethod == 'exog':
+            clrs1 = readJSON(args.colors1, sc, args.N)
+            print clrs1.take(2)
+            clrs2 = readJSON(args.colors2, sc, args.N)
+            G = matchColors(clrs1, clrs2, numPartitions=args.N).persist(storage_level)
+            
         logger.info('Number of constraints is %d' %G.count())
         if args.equalize:
             idnetityMap  = [(str(node), str(node)) for node  in range(n_max)]

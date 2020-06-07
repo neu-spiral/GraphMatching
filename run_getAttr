@@ -1,0 +1,11 @@
+#!/bin/bash
+
+G1=$1
+method=M
+k=$2
+N=$3
+
+
+
+sbatch  -p general --mem 20g  getAttr  $method  data/$G1/graph $k  data/$G1/"attr_"$method$k $N 
+

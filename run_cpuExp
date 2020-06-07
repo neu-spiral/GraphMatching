@@ -1,0 +1,36 @@
+#!/bin/bash
+
+#SBATCH --nodes=1
+#SBATCH --job-name=CPU_GM
+#SBATCH --tasks=1
+#SBATCH --exclusive
+#SBATCH --output=slurm-logs/GM%j.out
+#SBATCH --error=slurm-logs/GM%j.err
+
+GRAPH1=$1
+GRAPH2=$2
+iter=1
+N=$3
+PSolver=ParallelSolver2norm
+LSolver=LocalLSSolver
+p=2
+prepMod=degree0  #Other choices WL5 or WL4 or all, neighbor
+resume=$4
+linear=true 
+lambda_lin=$5
+
+
+ulimit -u 10000
+for CPUs in 64 32;
+do
+      echo running for $CPUs
+        if [ "$resume" = false ]; then
+          ./cpu_GM  data/$GRAPH1/$GRAPH2"_"$prepMod    data/traces/"GM_"$CPUs"cpus_LinTerm"$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N data/RDDs/"GM_"$CPUs"cpus_LinTerm"$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2$p"_N"$N  data/$GRAPH1/objectives_$GRAPH2"_"$prepMod checkpointdir  $N data/logfiles/"GM_"$CPUs"cpus_LinTerm"$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N $iter $LSolver  $PSolver $p  false  $linear data/$GRAPH1/Dist_$GRAPH2"M2" $lambda_lin $CPUs
+        fi
+done
+
+#        for i in `seq 1 2`;
+#        do
+#            echo running for $i time 
+#          ./cpu_GM  data/$GRAPH1/$GRAPH2"_"$prepMod    data/traces/"GM_"$CPUs"cpus_LinTerm"$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N  data/RDDs/"GM_"$CPUs"cpus_LinTerm"$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2$p"_N"$N  data/$GRAPH1/objectives_$GRAPH2"_"$prepMod checkpointdir  $N data/logfiles/"GM_"$CPUs"cpus_LinTerm"$lambda_lin"_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N $iter $LSolver  $PSolver $p  true   $linear data/$GRAPH1/Dist_$GRAPH2"M2" $lambda_lin $CPUs
+#        done 

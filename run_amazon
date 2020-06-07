@@ -1,0 +1,44 @@
+#!/bin/bash
+
+#SBATCH --nodes=1
+#SBATCH --job-name=GM_amz
+#SBATCH --exclusive
+#SBATCH --mem=100G
+#SBATCH --tasks=1
+#SBATCH --output=slurm-logs/GM%j.out
+#SBATCH --error=slurm-logs/GM%j.err
+
+GRAPH1=$1
+iter=1
+N=$2
+PSolver=ParallelSolver
+LSolver=LocalL1Solver
+p=1
+prepMod=WL5  #Other choices WL5 or WL4 or all, neighbor
+resume=$3
+linear=false
+
+
+if [ "$resume" = false ]; then
+  ./iter_batch_GM  data/$GRAPH1/G_$prepMod    data/traces/"GM_"$PSolver$LSolver$GRAPH1"p"$p"_N"$N  data/RDDs/"GM_"$PSolver$LSolver$GRAPH1$GRAPH2$p"_N"$N  data/$GRAPH1/objectives"_"$prepMod checkpointdir  $N data/logfiles/"GM_"$PSolver$LSolver$GRAPH1"p"$p"_N"$N $iter $LSolver  $PSolver $p  false  $linear data/$GRAPH1/Dist_$GRAPH2"M2" $lambda_lin
+fi
+
+
+for i in `seq 1 15`;
+do
+    echo running for $i time 
+    ./iter_batch_GM  data/$GRAPH1/G_$prepMod    data/traces/"GM_"$PSolver$LSolver$GRAPH1"p"$p"_N"$N  data/RDDs/"GM_"$PSolver$LSolver$GRAPH1$GRAPH2$p"_N"$N  data/$GRAPH1/objectives"_"$prepMod checkpointdir  $N data/logfiles/"GM_"$PSolver$LSolver$GRAPH1"p"$p"_N"$N $iter $LSolver  $PSolver $p  true  $linear data/$GRAPH1/Dist_$GRAPH2"M2" $lambda_lin 
+   
+done 
+#for i in `seq 1 10`;
+#do
+
+#echo $i
+#./iter_batch_GM  data/$GRAPH1/$GRAPH2"_"$prepMod    data/traces/"GM_adapRho_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N  data/RDDs/"GM_adapRho_"$PSolver$LSolver$GRAPH1$GRAPH2$p"_N"$N  data/$GRAPH1/objectives_$GRAPH2"_"$prepMod checkpointdir  $N data/logfiles/"GM_adapRho_"$PSolver$LSolver$GRAPH1$GRAPH2"p"$p"_N"$N $iter $LSolver  $PSolver $p  $resume
+
+#done
+
+
+
+
+

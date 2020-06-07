@@ -80,8 +80,8 @@ if __name__=="__main__":
     parser.add_argument('--rho_inner',default=1.0,type=float, help='Rho paramter for Inner ADMM')
     parser.add_argument('--alpha',default=0.05,type=float, help='Alpha value, used for dual variables')
     parser.add_argument('--lambda_linear',default=1.0,type=float, help='Regularization parameter for linear term.')
-    parser.add_argument('--dump_trace_freq',default=10,type=int,help='Number of iterations between trace dumps')
-    parser.add_argument('--checkpoint_freq',default=10,type=int,help='Number of iterations between check points')
+    parser.add_argument('--dump_trace_freq',default=100,type=int,help='Number of iterations between trace dumps')
+    parser.add_argument('--checkpoint_freq',default=100,type=int,help='Number of iterations between check points')
     parser.add_argument('--checkpointdir',default='checkpointdir',type=str,help='Directory to be used for checkpointing')
     parser.add_argument('--initRDD',default=None, type=str, help='File name, where the RDDs are dumped.')
     parser.add_argument('--GCP',action='store_true', help='Pass if running on  Google Cloud Platform')
@@ -165,6 +165,7 @@ if __name__=="__main__":
         D =  sc.textFile(args.distfile).map(eval).partitionBy(args.N).persist(StorageLevel.MEMORY_ONLY)
     else:
         D = None
+        logger.info("No linear term is passed.")
     
     #Partitioning function (if given)
     if args.partitionR != None:
@@ -227,6 +228,7 @@ if __name__=="__main__":
 
     
     if args.initRDD != None:
+    #Resume from previous iteration. 
 
 
         if args.GCP:
@@ -265,6 +267,7 @@ if __name__=="__main__":
 
 
     else:
+    #Starting from the initial iteration. 
 
        #Create primal and dual variables and associated solvers
         if ParallelSolverClass == ParallelSolver:
@@ -450,6 +453,9 @@ if __name__=="__main__":
                 dump_time = dump_end_time - dump_st_time
       
 	#oldZ.unpersist()
+        #Check the space remained. 
+#        fDisk = os.popen("ssh c3120 du -hs /tmp")
+#        logger.info("Space used is %s" %fDisk.read())
 	
      
     end_timing = time.time()

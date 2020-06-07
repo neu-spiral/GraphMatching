@@ -48,6 +48,7 @@ if __name__=='__main__':
     parser.add_argument('--outputdir', default='./figs', type=str,help='output dir')
     parser.add_argument('--objective',default='$\|AP-PB\|_2$',type=str, help='objective function to be displayed on y-axis.')
     parser.add_argument('--title', default=None, type=str, help='plots title')
+    parser.add_argument('--rhos', default=None, type=str, help='comma separated lambda parameter')
     parser.add_argument('--lambdas', default=None, type=str, help='lambda parameter')
 
     axisgroup = parser.add_mutually_exclusive_group(required=False)
@@ -76,6 +77,10 @@ if __name__=='__main__':
     else:
         lambdas = dict(zip(myargs.filenames, len(myargs.filenames)*[0.0]))
         
+    if myargs.rhos:
+        rhos = dict(zip(myargs.filenames, eval(myargs.rhos)))
+    else:
+        rhos = dict(zip(myargs.filenames, len(myargs.filenames)*[1.0]))
 
 
     
@@ -89,6 +94,7 @@ if __name__=='__main__':
     data['DRES'] ={}
 
     minITERS = 10**8
+    print rhos
     for filename in myargs.filenames:
         #Added to process based on iteration time rather than total time
         cuuernt_time = 0.0
@@ -114,13 +120,15 @@ if __name__=='__main__':
        # data['TIME'][filename] = [trace[iteration]['TIME']/60.0 for iteration in iterations]
         data['OBJ'][filename] = [(trace[iteration]['OLDOBJ'] - trace[iteration]['OLDNOLIN'])*lambdas[filename] + trace[iteration]['OLDNOLIN']  for iteration in iterations]
         data['OBJNOLIN'][filename] = [trace[iteration]['OLDNOLIN'] for iteration in iterations]
-        data['PRES'][filename] = [ (trace[iteration]['PRES']+ trace[iteration]['QRES']+trace[iteration]['TRES'])/3. for iteration in iterations]
-        data['DRES'][filename] = [ trace[iteration]['DRES'] for iteration in iterations]
+        data['PRES'][filename] = [ (trace[iteration]['PRES']+ trace[iteration]['QRES']+trace[iteration]['TRES'])/(rhos[filename]*3.) for iteration in iterations]
+        data['DRES'][filename] = [ trace[iteration]['DRES']/(3.0*rhos[filename]) for iteration in iterations]
 
+   
     
     
     for data_label in ['OBJ','OBJNOLIN','PRES','DRES']:
     	fig =plt.figure()
+        size = fig.get_size_inches()
     	ax = fig.add_subplot(1,1,1)
      #   if data_label == 'OBJ':
         if myargs.log:
@@ -140,12 +148,13 @@ if __name__=='__main__':
             #ax.set_xlim([0, 62])
         else:
             ax.set_xlabel(data_labels['ITERATION'])
-            ax.set_xlim([0, minITERS])        
+            ax.set_xlim([0, 52])        
         
     	names= [ labels[filename] for filename in myargs.filenames ]
-    	plt.legend(lines,names)
+        if data_label == 'OBJNOLIN':
+    	    LGD=plt.legend(lines,names, ncol=2,loc='lower right', bbox_to_anchor=(1,0),fontsize='x-small')
     	#ax.set_title(graph+' '+cache )
 	plt.tight_layout()
-    	fig.savefig(myargs.outputdir+'/fig_'+data_label+'.pdf')
+    	fig.savefig(myargs.outputdir+'/fig_'+data_label+'.pdf', bbox_inches='tight')
     	plt.close(fig)
 

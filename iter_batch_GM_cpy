@@ -1,0 +1,40 @@
+#!/bin/bash 
+#SBATCH --nodes=1
+#SBATCH --job-name=GM
+#SBATCH --tasks=1
+#SBATCH --output=slurm-logs/GM%j.out
+#SBATCH --error=slurm-logs/GM%j.err
+
+module load spark/2.3.2-hadoop2.7
+module load python/2.7.15
+
+
+resume="${12}"
+linear="${13}"
+alpha=1
+rhoP=5
+rhoT=5
+rhoQ=5
+rho_inner=10
+#masterIP=spark://10.99.252.65:7077 # spark://10.99.252.65:7077
+masterIP=${16}
+
+ 
+
+cd /scratch/armin_m/GraphMatching/REPOSITORY
+
+if [ "$resume" = false ]; then
+    if [ "$linear" = false ]; then
+        spark-submit --master  $masterIP   --executor-memory 100g --driver-memory 100g --conf "spark.akka.frameSize=1024" --conf "spark.driver.maxResultSize=20G"   --py-files proxOp.py,helpers.py,helpers_GCP.py,LocalSolvers.py,debug.py,ParallelSolvers.py GraphMatchingADMM.py $1 $2  $3 --objectivefile $4 --checkpointdir $5 --N $6 --Nrowcol $6 --logfile  $7  --checkpoint_freq 100   --maxiter $8 --solver $9 --parallelSolver "${10}" --p "${11}"  --rho_inner $rho_inner  --maxInnerADMMiter 60   --dump_trace_freq 50   --rhoP $rhoP   --rhoT $rhoT   --rhoQ $rhoQ   --alpha $alpha  --leanInner  --notfromsnap  #--adaptrho # --silent --leanInner  --lean
+    else
+         spark-submit --master  $masterIP  --executor-memory 100g  --driver-memory 100g  --conf "spark.akka.frameSize=1024" --conf "spark.driver.maxResultSize=20G"   --py-files proxOp.py,helpers.py,helpers_GCP.py,LocalSolvers.py,debug.py,ParallelSolvers.py GraphMatchingADMM.py $1 $2  $3 --objectivefile $4 --checkpointdir $5 --N $6 --Nrowcol $6  --logfile  $7  --checkpoint_freq 100  --maxiter $8 --solver $9 --parallelSolver "${10}" --p "${11}"  --rho_inner $rho_inner  --maxInnerADMMiter 60   --dump_trace_freq 50   --rhoP $rhoP   --rhoT $rhoT  --rhoQ  $rhoQ   --alpha $alpha  --leanInner  --distfile "${14}" --lambda_linear  "${15}" --notfromsnap
+    fi
+else
+    if [ "$linear" = false ]; then
+        spark-submit --master  $masterIP  --executor-memory 100g --driver-memory 100g --conf "spark.akka.frameSize=1024" --conf "spark.driver.maxResultSize=20G"   --py-files proxOp.py,helpers.py,helpers_GCP.py,LocalSolvers.py,debug.py,ParallelSolvers.py GraphMatchingADMM.py  $1 $2  $3 --objectivefile $4 --checkpointdir $5 --N $6 --Nrowcol $6 --logfile  $7  --checkpoint_freq 100 --maxiter $8 --solver $9 --parallelSolver "${10}" --p "${11}"  --rho_inner $rho_inner  --maxInnerADMMiter 60   --dump_trace_freq 50   --rhoP $rhoP  --rhoT $rhoT  --rhoQ $rhoQ  --alpha $alpha  --initRDD $3 --leanInner   --notfromsnap  #--silent # --adaptrho
+    else
+        spark-submit --master   $masterIP  --executor-memory 100g   --driver-memory 100g  --conf "spark.akka.frameSize=1024" --conf "spark.driver.maxResultSize=20G"   --py-files proxOp.py,helpers.py,helpers_GCP.py,LocalSolvers.py,debug.py,ParallelSolvers.py GraphMatchingADMM.py  $1 $2  $3 --objectivefile $4 --checkpointdir $5 --N $6 --Nrowcol $6 --logfile  $7  --checkpoint_freq 100  --maxiter $8 --solver $9 --parallelSolver "${10}" --p "${11}"  --rho_inner $rho_inner  --maxInnerADMMiter 60   --dump_trace_freq 50   --rhoP $rhoP  --rhoT $rhoT  --rhoQ $rhoQ  --alpha $alpha  --initRDD $3 --leanInner  --hasLinear  --notfromsnap  #--silent # --adaptrho  
+    fi
+fi
+
+

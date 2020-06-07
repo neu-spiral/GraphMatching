@@ -1,0 +1,35 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --time=20:00:00
+#SBATCH --job-name=GM
+#SBATCH --tasks=1
+#SBATCH --cpus-per-task=20
+#SBATCH --mem=100Gb
+#SBATCH --exclusive 
+#SBATCH --output=slurm-logs/GM%j.out
+#SBATCH --error=slurm-logs/GM%j.err
+
+
+iter=100
+N=$2
+PSolver=ParallelSolver
+LSolver=LocalL1Solver
+p=1
+resume=false
+
+while IFS='' read -r line || [[ -n "$line" ]]; do
+    GRAPH1=$(echo $line | awk '{split($0,g,", "); print g[1]}')
+    GRAPH2=$(echo $line | awk '{split($0,g,", "); print g[2]}')
+    prepF=$(echo $line | awk '{split($0,g,", "); print g[3]}')
+    echo $GRAPH1
+    echo $GRAPH2
+
+    g1=$(echo $GRAPH1 | awk '{split($0,g,"/"); print g[2]}')
+    g2=$(echo $GRAPH2 | awk '{split($0,g,"/"); print g[2]}')
+    G=$(echo $prepF | awk '{split($0,g,"/"); print g[2]}')
+
+    ./synt_iter_batch_GM  data/synthetic/$prepF    data/traces/"GM_"$PSolver$LSolver$g1$g2$Gf"p"$p data/RDDs/"GM_"$PSolver$LSolver$g1$g2$Gf$p  data/synthetic/$GRAPH1 data/synthetic/$GRAPH2  checkpointdir  $N data/logfiles/"GM_"$PSolver$LSolver$g1$g2$Gf"p"$p $iter $LSolver  $PSolver $p   $resume
+done < "$1"
+
+
+

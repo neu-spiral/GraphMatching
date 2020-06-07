@@ -1,0 +1,42 @@
+#! /bin/bash
+#SBATCH --job-name=FW
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=2Gb
+#SBATCH --output=slurm-logs/FW.%j.out
+#SBATCH --error=slurm-logs/FW.%j.err
+
+
+module load spark/2.3.2-hadoop2.7
+module load python/2.7.15
+
+
+
+source /scratch/armin_m/spark/conf/spark-env.sh
+
+
+
+ulimit -u 10000
+
+G1=ER64_0.1
+G2=ER64_0.1_perturbed_keepP0.99
+N=64
+cnstMode=$1
+lamb=0.0
+attMode=M3
+p=2
+resume=false
+
+echo data/$G1/Dist_$G2$attMode 
+if [ "$resume" = false ]; then
+#    python   GM_FW.py   data/$G1/objectives_$G2"_"$cnstMode $N data/FW/$G1$G2$cnstMode$attMode$lamb$p  --dist data/$G1/Dist_$G2$attMode  --maxiters 20000  --p $p --lamb $lamb 
+      python   GM_FW.py   data/$G1/objectives_$G2"_"$cnstMode $N data/FW/$G1$G2$cnstMode$attMode$lamb$p   --maxiters 20000  --p $p --lamb $lamb 
+
+else
+#     python   GM_FW.py   data/$G1/objectives_$G2"_"$cnstMode $N data/FW/$G1$G2$cnstMode$attMode$lamb$p  --dist data/$G1/Dist_$G2$attMode  --maxiters 20000  --p $p --lamb $lamb --initP data/FW/$G1$G2$cnstMode$attMode$lamb$p"_P"
+      python   GM_FW.py   data/$G1/objectives_$G2"_"$cnstMode $N data/FW/$G1$G2$cnstMode$attMode$lamb$p    --maxiters 20000  --p $p --lamb $lamb --initP data/FW/$G1$G2$cnstMode$attMode$lamb$p"_P"
+fi
+
+python  heatMap.py data/FW/$G1$G2$cnstMode$attMode$lamb$p"_P" data/$G1/graph data/$G2/graph  --outfile figs/HM/$G1$G2$cnstMode$attMode$lamb$p
+
+

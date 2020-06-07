@@ -1,0 +1,29 @@
+#! /bin/bash
+#SBATCH --job-name=partitioning
+#SBATCH --nodes=1
+#SBATCH --mem=100g
+#SBATCH --output=slurm-logs/partitioning.%j.out
+#SBATCH --error=slurm-logs/partitioning.%j.err
+
+
+module load spark/2.3.2-hadoop2.7
+module load python/2.7.15
+
+
+
+source /scratch/armin_m/spark/conf/spark-env.sh
+
+
+
+ulimit -u 10000
+
+
+G1=$1
+G2=$2
+K=$3
+prepMode=WL3
+
+
+spark-submit --master  local[40]   --executor-memory 100g  --driver-memory 100g  --py-files helpers.py  --conf "spark.driver.maxResultSize=10G"  StreamingPartition.py  data/$G1/objectives_$G2"_"$prepMode data/$G1/partitions$K  --K $K --N $4 
+
+

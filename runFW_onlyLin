@@ -1,0 +1,36 @@
+#! /bin/bash
+#SBATCH --job-name=FW
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=2Gb
+#SBATCH --output=slurm-logs/FW.%j.out
+#SBATCH --error=slurm-logs/FW.%j.err
+
+
+module load spark/2.3.2-hadoop2.7
+module load python/2.7.15
+
+
+
+source /scratch/armin_m/spark/conf/spark-env.sh
+
+
+
+ulimit -u 10000
+
+G1=ER64_0.1
+G2=$1
+N=64
+cnstMode=all
+lamb=1.0
+attMode=M3
+p=1
+Noise=laplace
+scale=0.01
+
+
+python   GM_FW.py   data/$G1/objectives_$G2"_"$cnstMode $N data/FW/$G1$G2$cnstMode$attMode"ONLY_lin"$p"weighted_"$Noise$scale  --dist data/$G1/Dist_$G2$attMode  --maxiters 10000  --p $p --lamb $lamb --weights data/$G2/graph_weights_$Noise$scale --ONLY_lin
+
+python  heatMap.py data/FW/$G1$G2$cnstMode$attMode"ONLY_lin"$p"weighted_"$Noise$scale"_P" data/$G1/graph data/$G2/graph  --outfile figs/HM/$G1$G2$cnstMode$attMode"ONLY_lin"$p"weighted_"$Noise$scale
+
+

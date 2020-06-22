@@ -9,5 +9,5 @@ N=$5
 
 
 
-sbatch  -p ioannidis --mem 20g  -w c3097  --time 2:00:00 compDistance   data/$G1/"attr_"$mode$k  data/$G2/"attr_"$mode$k  data/$G1/"Dist_"$G2$mode$k  data/$G1/$G2"_"$method  $N 
+sbatch  -p ioannidis --mem 1g   --time 2:00:00 compDistance   data/$G1/"attr_"$mode$k  data/$G2/"attr_"$mode$k  data/$G1/"Dist_"$G2$mode$k  data/$G1/$G2"_"$method  $N 
 

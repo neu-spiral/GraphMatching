@@ -26,10 +26,10 @@ lamb=0.0
 attMode=M3
 p=$2
 Noise=laplace 
-scale=0.22
+scale=0.001
 
 
-python   GM_FW.py   data/$G1/objectives_$G2"_"$cnstMode $N data/FW/$G1$G2$cnstMode$attMode$lamb$p"weighted_"$Noise$scale  --dist data/$G1/Dist_$G2$attMode  --maxiters 10000  --p $p --lamb $lamb --weights data/$G2/graph_weights_$Noise$scale
+#python   GM_FW.py   data/$G1/objectives_$G2"_"$cnstMode $N data/FW/$G1$G2$cnstMode$attMode$lamb$p"weighted_"$Noise$scale  --dist data/$G1/Dist_$G2$attMode  --maxiters 10000  --p $p --lamb $lamb --weights data/$G2/graph_weights_$Noise$scale
 
 python  heatMap.py data/FW/$G1$G2$cnstMode$attMode$lamb$p"weighted_"$Noise$scale"_P" data/$G1/graph data/$G2/graph  --outfile figs/HM/$G1$G2$cnstMode$attMode$lamb$p"weighted_"$Noise$scale
 

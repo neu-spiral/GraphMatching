@@ -7,5 +7,5 @@ N=$3
 
 
 
-sbatch  -p general --mem 20g  getAttr  $method  data/$G1/graph $k  data/$G1/"attr_"$method$k $N 
+sbatch  -p ioannidis  --mem 20g  getAttr  $method  data/$G1/graph $k  data/$G1/"attr_"$method$k $N 
 

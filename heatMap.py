@@ -191,7 +191,7 @@ if __name__ == "__main__":
         Cost_Mat[eval(node_i)][eval(node_j)] = -Pdict[(node_i, node_j)]
    
     row_ind, col_ind  = linear_sum_assignment(Cost_Mat)
-    print row_ind, col_ind
+    #print row_ind, col_ind
     #Compute matching stats
     ell1_diff = 0.0
     for i in range(args.size):
@@ -204,11 +204,11 @@ if __name__ == "__main__":
 
     stats = {}
     stats['ell1Diff'] = ell1_diff
-    print "The ell1 diff. between the solution and the true perm. matrix is %f\n" %ell1_diff
+    #print "The ell1 diff. between the solution and the true perm. matrix is %f\n" %ell1_diff
     stats['diagMass'] = sum([Pdict[(orderedDegrees1[i], orderedDegrees2[i])] for i in range(args.size)] )
-    print "Digonal mass is %f" %stats['diagMass']
+    #print "Digonal mass is %f" %stats['diagMass']
     stats['mismatch'] = np.linalg.norm(np.array(col_ind) - perm, 0)
-    print "mismatch is %d" %stats['mismatch']
+    #print "mismatch is %d" %stats['mismatch']
     with open(args.outfile + '_stats', 'w') as statsFile:
         pickle.dump(stats, statsFile)
     

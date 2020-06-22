@@ -296,7 +296,7 @@ def evalPair(pair):
     
     
 if __name__=="__main__":
-    parser = argparse.ArgumentParser(description = 'CVXOPT Solver for Graph Matching',formatter_class=argparse.ArgumentDefaultsHelpFormatter) 
+    parser = argparse.ArgumentParser(description = 'FW Solver for Graph Matching',formatter_class=argparse.ArgumentDefaultsHelpFormatter) 
     parser.add_argument('objectives',type=str,help='File containing objectives.')
     parser.add_argument('N',type=int,help='File to store the results.')
     parser.add_argument('outfile',type=str,help='Output file')

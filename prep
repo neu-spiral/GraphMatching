@@ -16,8 +16,8 @@ source /scratch/armin_m/spark/conf/spark-env.sh
 
 ulimit -u 10000
 
-masterIP=spark://10.99.252.65:7077   #spark://10.99.252.65:7077
-#masterIP=local[56]
+#masterIP=spark://10.99.252.65:7077   #spark://10.99.252.65:7077
+masterIP=local[56]
 
 
 if [  "$7" = "exog" ]; then

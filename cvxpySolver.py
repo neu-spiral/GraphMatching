@@ -30,6 +30,14 @@ def readGraph(gfile, graph_size):
     A_symm = np.maximum( A, A.transpose() )
     return A_symm
 
+def dict2array(a_dict, size):
+    out = np.zeros((size, size))
+    for key in a_dict:
+        out[key] = a_dict[key]
+    return out
+    
+
+   
 
 
 if __name__ == "__main__":
@@ -38,8 +46,9 @@ if __name__ == "__main__":
     parser.add_argument('graph2', help="Text file containing the second graph.")
     parser.add_argument('graph_size', type=int, help="Number of nodes in the graph.")
     parser.add_argument('outfile',type=str,help='File to store results.')
+
     parser.add_argument('--dist_file',default=None, type=str,help='File containing distace file.')
-    parser.add_argument('--weights',type=str,help='File containing distace file.')
+    parser.add_argument('--weights', default=None, type=str,help='File containing distace file.')
     parser.add_argument('--lamb', default=0.0, type=float, help='lambda parameter regularizing the linear term.')
     parser.add_argument('--epsilon', default=1.e-2, type=float, help='The accuracy for cvxopt solver.')
     parser.add_argument('--p', default=2.5, type=float, help='p parameter in p-norm')
@@ -52,6 +61,12 @@ if __name__ == "__main__":
     # Load problem data: graphs and distance file (if passed)
     A = readGraph(args.graph1, args.graph_size)
     B = readGraph(args.graph2, args.graph_size)
+    #add weights (if given)
+    if args.weights:
+        W_dict = pickle.load(open(args.weights, 'rb')) 
+        B += dict2array( W_dict, args.graph_size)
+
+    print(B)
     if args.dist_file:
         D = read_dist_file(args.dist_file)
 
@@ -62,10 +77,18 @@ if __name__ == "__main__":
     #optimization variables
     P = cp.Variable( (args.graph_size, args.graph_size) )
 
-    objective = cp.Minimize(cp.norm( cp.atoms.affine.reshape.reshape(A @ P - P @ B, args.graph_size ** 2) , p=args.p) )
+    #if args.p == 2:
+    #    loss_term = cp.norm2( cp.reshape( A @ P - P @ B , args.graph_size ** 2) ) 
+    #else:
+    loss_term  = cp.atoms.pnorm(A @ P - P @ B, p=args.p)
+    objective = cp.Minimize(loss_term )
     constraints = [P @ one_vec == one_vec, P.T @ one_vec == one_vec, P >= 0]
     prob = cp.Problem(objective, constraints)
-    prob.solve()
+
+    if  args.p == 2:
+        prob.solve(solver='SCS', verbose=True)
+    else:
+    	prob.solve(verbose=True)
 
     print("status:", prob.status)
     print("optimal value", prob.value)

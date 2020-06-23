@@ -5,10 +5,9 @@ import matplotlib.pyplot as plt
 
 import argparse
 import pickle
-from pyspark import SparkConf, SparkContext
-from preprocessor import degrees, readSnap
+#from pyspark import SparkConf, SparkContext
+#from preprocessor import degrees, readSnap
 from scipy.optimize import linear_sum_assignment
-from LocalSolvers import LocalL1Solver
 
 #plt.rc('font', serif='Times New Roman')
 #plt.rc('font', size=15)
@@ -84,8 +83,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description = 'Extracting a heat map.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('mapping',default=None,help ="File containing the mapping of the nodes. ")
     
-    parser.add_argument('graph1',default=None,help = 'File containing first graph.')
-    parser.add_argument('graph2',default=None,help = 'File containing second graph.')
+    parser.add_argument('--perm_file', default=None, help="File storing the true mapping")
     parser.add_argument('--size',default=64,type=int,help = 'File containing second graph.')
     parser.add_argument('--obj',default=None,help = 'Ojectives file')
     parser.add_argument('--N',default=60,type=int, help='Number of partitions')
@@ -98,8 +96,12 @@ if __name__ == "__main__":
 
 
 
-    with open(args.graph1+ "_perm", 'r') as permF:
-        perm = np.load(permF)
+    if args.perm_file:
+    	with open(args.perm_file, 'r') as permF:
+            perm = np.load(permF)
+    else:
+        perm = np.random.RandomState(seed=1993).permutation(args.size)
+    
 
     if args.readMode == 'sc':
         sc = SparkContext()
@@ -107,67 +109,17 @@ if __name__ == "__main__":
         Pdict = dict(P)
        
     elif args.readMode == 'pickle':
-        with open(args.mapping,'r') as mapF:
+        with open(args.mapping,'rb') as mapF:
             Pdict = pickle.load(mapF)
     else:
         Pdict = readMatlabMat(args.mapping)
     
-    #OBJs =  sc.textFile(args.obj).map(eval).collect() 
-    #L1Solver_obj = LocalL1Solver(OBJs, 1.0)
-    
-
-   # P = sc.textFile(args.mapping).map(eval).partitionBy(args.N).cache()
-   # graph1 = sc.textFile(args.graph1).map(eval).partitionBy(args.N).cache()
-   # graph2 = sc.textFile(args.graph1).map(eval).partitionBy(args.N).cache() 
-#    graph1 = readSnap(args.graph1, sc, args.N)
-#    graph2 = readSnap(args.graph2, sc, args.N)
-
-#    graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
-#    graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
-#    n1 = graph1.flatMap(lambda (u,v):[u,v]).distinct().count()
-#    n2 = graph2.flatMap(lambda (u,v):[u,v]).distinct().count()
-
-#    n_min = min(n1, n2)
-#    n_max = max(n1, n2)
-
-#    dummyNodes = [(str(dum), str(dum) ) for dum in range(n_min, n_max)]
-#    dummyNodes = sc.parallelize(dummyNodes).partitionBy(args.N)
-
-#    if n1<n2:
-           # graph1 = graph1.filter(lambda (u,v): eval(u)<n2 and eval(v)<n2).cache()
-#        graph1 = graph1.union(dummyNodes).partitionBy(args.N).cache()
-#    else:
-#        graph2 = graph2.union(dummyNodes).partitionBy(args.N).cache()
-
-#    graph1 = graph1.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
-#    graph2 = graph2.flatMap(lambda (u,v):[ (u,v),(v,u)]).distinct()
 
 
-#    n1 = graph1.flatMap(lambda (u,v):[u,v]).distinct().count()
-#    n2 = graph2.flatMap(lambda (u,v):[u,v]).distinct().count()
-  #  A = Graph2AdjcanecyMat(graph1.collect(), n_max)
-  #  B = Graph2AdjcanecyMat(graph2.collect(), n_max)
-    
-#    orderedDegrees1 = degrees(graph1, 0, args.N).mapValues(lambda (inward, outward): inward+outward).takeOrdered(n_max, key = lambda x:x[1])
-#    orderedDegrees2 = degrees(graph2, 0, args.N).mapValues(lambda (inward, outward): inward+outward).takeOrdered(n_max, key = lambda x:x[1])
-
-
-    orderedDegrees1 = [unicode(i) for i in range(args.size)]
-    orderedDegrees2 = [unicode(i) for i in  perm]
+    ordered1 = list(range(args.size))
+    ordered2 = list(perm)
     
     
-
-   # Pcolected = P.collect()
-   # print "Objective is ", L1Solver_obj.evaluate(dict(Pcolected) )
-   # Pmat = WeigtGraph2djcanecyMat(Pcolected, n_max)
-   # APmPB = A*Pmat - Pmat*B
-   # tmp = 0.
-   # p = 2.
-   ## for i in range(n_max):
-   #     for j in range(n_max):
-    #        tmp += (np.abs(APmPB[i,j]))**p
-   # print tmp**(1./p)
-   # Pdict = dict( Pcolected  )
     
 
     PheatList = []
@@ -175,7 +127,7 @@ if __name__ == "__main__":
         row = []
         for j in range(args.size):
             try:
-                row.append(Pdict[(orderedDegrees1[i], orderedDegrees2[j])])
+                row.append(Pdict[(ordered1[i], ordered2[j])])
                  
             except KeyError:
                  row.append(0.0)
@@ -186,29 +138,20 @@ if __name__ == "__main__":
     
     
    #Find mathcing (by projection on the set of permutaion matrices via Hungarian method)
-    Cost_Mat = np.zeros((args.size, args.size))
-    for (node_i, node_j) in Pdict:
-        Cost_Mat[eval(node_i)][eval(node_j)] = -Pdict[(node_i, node_j)]
-   
+    Cost_Mat = -1 * PheatArray
     row_ind, col_ind  = linear_sum_assignment(Cost_Mat)
     #print row_ind, col_ind
     #Compute matching stats
-    ell1_diff = 0.0
-    for i in range(args.size):
-        for j in range(args.size):
-            if i==j:
-                ell1_diff += abs(Pdict[(orderedDegrees1[i], orderedDegrees2[j])]-1)
-            else:
-                ell1_diff += abs(Pdict[(orderedDegrees1[i], orderedDegrees2[j])])
-            
 
     stats = {}
-    stats['ell1Diff'] = ell1_diff
-    #print "The ell1 diff. between the solution and the true perm. matrix is %f\n" %ell1_diff
-    stats['diagMass'] = sum([Pdict[(orderedDegrees1[i], orderedDegrees2[i])] for i in range(args.size)] )
-    #print "Digonal mass is %f" %stats['diagMass']
-    stats['mismatch'] = np.linalg.norm(np.array(col_ind) - perm, 0)
-    #print "mismatch is %d" %stats['mismatch']
-    with open(args.outfile + '_stats', 'w') as statsFile:
+    stats['ell1Diff'] = np.sum( np.absolute( PheatArray - np.eye(args.size)) ) 
+
+    print( "The ell1 diff. between the solution and the true perm. matrix is {}\n".format(stats['ell1Diff']) )
+
+    stats['diagMass'] = np.sum( np.diagonal(PheatArray) ) / args.size
+    print( "Digonal mass is {}".format(stats['diagMass']) )
+    stats['mismatch'] = np.linalg.norm(np.array(col_ind) - perm, 0) / args.size
+    print( "mismatch is {}".format(stats['mismatch']) )
+    with open(args.outfile + '_stats', 'wb') as statsFile:
         pickle.dump(stats, statsFile)
     

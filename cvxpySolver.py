@@ -1,9 +1,11 @@
 import cvxpy as cp
+import glob
+
 import pickle
 import argparse
 import numpy as np
 
-def read_dist_file( dirname, prefix="part"):
+def read_dist_file( dirname, graph_size, prefix="part"):
     """
         Read distnace file, each line is a key valued pair; keys are node pairs and values are the corresponding distance between the nodes.
     """
@@ -12,8 +14,10 @@ def read_dist_file( dirname, prefix="part"):
         print( "Now readaiang " + partFile)
         with open(partFile, 'r') as pF:
             for vals_line in pF:
-                (var, dist) = eval(dist_line)
-                D[var] = dist
+                (node_pair, dist) = eval(vals_line)
+                row = eval(node_pair[0])
+                col = eval(node_pair[1])
+                D[(row, col)] = dist
     return D
 
 def readGraph(gfile, graph_size):
@@ -66,10 +70,10 @@ if __name__ == "__main__":
         W_dict = pickle.load(open(args.weights, 'rb')) 
         B += dict2array( W_dict, args.graph_size)
 
-    print(B)
     if args.dist_file:
-        D = read_dist_file(args.dist_file)
+        D = read_dist_file(args.dist_file, args.graph_size)
 
+    print(D)
 
     # Construct the problem.
     one_vec = np.ones(args.graph_size)
@@ -81,6 +85,9 @@ if __name__ == "__main__":
     #    loss_term = cp.norm2( cp.reshape( A @ P - P @ B , args.graph_size ** 2) ) 
     #else:
     loss_term  = cp.atoms.pnorm(A @ P - P @ B, p=args.p)
+    if args.dist_file:
+    	loss_term += args.lamb * cp.sum( cp.multiply(D, P) )
+
     objective = cp.Minimize(loss_term )
     constraints = [P @ one_vec == one_vec, P.T @ one_vec == one_vec, P >= 0]
     prob = cp.Problem(objective, constraints)

@@ -81,13 +81,13 @@ def plotter(Parray, outfile):
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description = 'Extracting a heat map.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('mapping',default=None,help ="File containing the mapping of the nodes. ")
-    
+    parser.add_argument('mapping', help ="File containing the mapping of the nodes. ")
+    parser.add_argument('outfile', help = "File to store results name")
+
     parser.add_argument('--perm_file', default=None, help="File storing the true mapping")
     parser.add_argument('--size',default=64,type=int,help = 'File containing second graph.')
     parser.add_argument('--obj',default=None,help = 'Ojectives file')
     parser.add_argument('--N',default=60,type=int, help='Number of partitions')
-    parser.add_argument('--outfile',default=None,help = 'Figures name')
 
     parser.add_argument('--readMode',default='pickle', choices={'sc','pickle','matlab'},help = 'Reading mode')
     parser.set_defaults(sc=False)
@@ -150,7 +150,7 @@ if __name__ == "__main__":
 
     stats['diagMass'] = np.sum( np.diagonal(PheatArray) ) / args.size
     print( "Digonal mass is {}".format(stats['diagMass']) )
-    stats['mismatch'] = np.linalg.norm(np.array(col_ind) - perm, 0) / args.size
+    stats['mismatch'] = np.linalg.norm(np.array(col_ind) - np.array(range(args.size)), 0) / args.size
     print( "mismatch is {}".format(stats['mismatch']) )
     with open(args.outfile + '_stats', 'wb') as statsFile:
         pickle.dump(stats, statsFile)

@@ -73,7 +73,7 @@ if __name__ == "__main__":
     if args.dist_file:
         D = read_dist_file(args.dist_file, args.graph_size)
 
-    print(D)
+        print(D)
 
     # Construct the problem.
     one_vec = np.ones(args.graph_size)

@@ -2,10 +2,10 @@
 
 G1=$1
 method=M
-k=$2
-N=$3
+k=3
+N=1
 
 
 
-sbatch  -p ioannidis  --mem 20g  getAttr  $method  data/$G1/graph $k  data/$G1/"attr_"$method$k $N 
+sbatch  -p ioannidis  --mem 500m  getAttr  $method  data/$G1/graph $k  data/$G1/"attr_"$method$k $N 
 

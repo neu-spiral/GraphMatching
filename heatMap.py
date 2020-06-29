@@ -84,7 +84,7 @@ def plotter(Parray, outfile):
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description = 'Extracting a heat map.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('mapping', help ="File containing the mapping of the nodes. ")
+    parser.add_argument('mappings', metavr= 'mapping', nargs='+',  help ="File containing the mapping of the nodes. ")
     parser.add_argument('outfile', help = "File to store results name")
 
     parser.add_argument('--perm_file', default=None, help="File storing the true mapping")
@@ -99,28 +99,32 @@ if __name__ == "__main__":
 
 
 
+    
     if args.perm_file:
     	with open(args.perm_file, 'r') as permF:
             perm = np.load(permF)
     else:
         perm = np.random.RandomState(seed=1993).permutation(args.size)
-    
-
-    if args.readMode == 'sc':
-        sc = SparkContext()
-        P = sc.textFile(args.mapping).map(eval).collect()
-        Pdict = dict(P)
-       
-    elif args.readMode == 'pickle':
-        with open(args.mapping,'rb') as mapF:
-            Pdict = pickle.load(mapF)
-    else:
-        Pdict = readMatlabMat(args.mapping)
-    
-
 
     ordered1 = list(range(args.size))
     ordered2 = list(perm)
+    
+
+    for input_ind, mapping in enumerate(args.mappings):
+        if args.readMode == 'sc':
+            sc = SparkContext()
+            P = sc.textFile(args.mapping).map(eval).collect()
+            Pdict = dict(P)
+       
+        elif args.readMode == 'pickle':
+            with open(args.mapping,'rb') as mapF:
+                Pdict = pickle.load(mapF)
+        else:
+            Pdict = readMatlabMat(args.mapping)
+
+    
+
+
     
     
     

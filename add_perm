@@ -1,0 +1,20 @@
+#! /bin/bash
+
+graph=$1
+size=64
+noise=both
+mix_weight=0.0
+scale=0.1
+keep_prob=0.99
+
+if [ "$keep_prob" = "1.0" ]; then
+	out_dir=data/$graph"_perturbed"
+else
+	out_dir=data/$graph"_perturbed_keep_prob"$keep_prob
+fi
+
+mkdir $out_dir
+
+echo making $out_dir
+python Perturb.py data/$1/graph $out_dir/graph $size --keepProb  $keep_prob
+

@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import seaborn
 
 import argparse
 import pickle
@@ -78,6 +79,8 @@ def plotter(Parray, outfile):
     fig.savefig(outfile)
     plt.show()
 
+
+
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description = 'Extracting a heat map.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -134,7 +137,9 @@ if __name__ == "__main__":
         PheatList.append(row)
     PheatArray = np.array( PheatList  )
 
-    plotter(PheatArray, args.outfile + ".pdf")
+#    plotter(PheatArray, args.outfile + ".pdf")
+    hm_plt = seaborn.heatmap(PheatArray)
+    hm_plt.get_figure().savefig(args.outfile + ".pdf") 
     
     
    #Find mathcing (by projection on the set of permutaion matrices via Hungarian method)

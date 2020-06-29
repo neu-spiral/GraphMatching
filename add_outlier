@@ -1,0 +1,18 @@
+#! /bin/bash
+
+graph=$1
+size=64
+noise=both
+mix_weight=0.0
+scale=0.1
+keep_prob=0.99
+
+
+outliers=$2
+
+out_dir=data/$graph"_disturbed"$outliers"outliers"
+mkdir $out_dir
+
+echo making $out_dir
+python Disturb.py data/$1/graph $out_dir/graph $size  $outliers
+

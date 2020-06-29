@@ -1,0 +1,10 @@
+#! /bin/bash
+
+graph=$1
+out=$2
+size=64
+noise=both
+mix_weight=0.0
+scale=0.1
+
+python NoiseAdder.py data/$1/graph data/$out/graph $size --noise $noise  --mix_noise_weight $mix_weight --scale $scale

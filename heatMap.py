@@ -148,10 +148,12 @@ if __name__ == "__main__":
 
     print( "The ell1 diff. between the solution and the true perm. matrix is {}\n".format(stats['ell1Diff']) )
 
-    stats['diagMass'] = np.sum( np.diagonal(PheatArray) ) / args.size
-    print( "Digonal mass is {}".format(stats['diagMass']) )
+    stats['DPM'] = np.sum( np.diagonal(PheatArray) ) / args.size
+    print( "Digonal mass is {}".format(stats['DPM']) )
     stats['mismatch'] = np.linalg.norm(np.array(col_ind) - np.array(range(args.size)), 0) / args.size
+    stats['DPM-P'] = 1 - stats['mismatch']
     print( "mismatch is {}".format(stats['mismatch']) )
+    print("DPM-P is {}".format(stats['DPM-P']))
     with open(args.outfile + '_stats', 'wb') as statsFile:
         pickle.dump(stats, statsFile)
     

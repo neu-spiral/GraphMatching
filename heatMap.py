@@ -138,7 +138,7 @@ if __name__ == "__main__":
     PheatArray = np.array( PheatList  )
 
 #    plotter(PheatArray, args.outfile + ".pdf")
-    hm_plt = seaborn.heatmap(PheatArray)
+    hm_plt = seaborn.heatmap(PheatArray, vmin=0.0, vmax=1.0)
     hm_plt.get_figure().savefig(args.outfile + ".pdf") 
     
     

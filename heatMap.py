@@ -84,15 +84,15 @@ def plotter(Parray, outfile):
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description = 'Extracting a heat map.',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('mappings', metavr= 'mapping', nargs='+',  help ="File containing the mapping of the nodes. ")
-    parser.add_argument('outfile', help = "File to store results name")
+    parser.add_argument('mappings', metavar= 'mapping', nargs='+',  help ="File containing the mapping of the nodes. ")
+    parser.add_argument('--outfile', help = "File to store results name")
 
     parser.add_argument('--perm_file', default=None, help="File storing the true mapping")
     parser.add_argument('--size',default=64,type=int,help = 'File containing second graph.')
     parser.add_argument('--obj',default=None,help = 'Ojectives file')
     parser.add_argument('--N',default=60,type=int, help='Number of partitions')
 
-    parser.add_argument('--readMode',default='pickle', choices={'sc','pickle','matlab'},help = 'Reading mode')
+    parser.add_argument('--readMode',default='np', choices={'sc','pickle','matlab', 'np'},help = 'Reading mode')
     parser.set_defaults(sc=False)
 
     args = parser.parse_args() 
@@ -108,61 +108,77 @@ if __name__ == "__main__":
 
     ordered1 = list(range(args.size))
     ordered2 = list(perm)
+
+    stats = {}
     
 
     for input_ind, mapping in enumerate(args.mappings):
         if args.readMode == 'sc':
             sc = SparkContext()
-            P = sc.textFile(args.mapping).map(eval).collect()
+            P = sc.textFile(mapping).map(eval).collect()
             Pdict = dict(P)
        
-        elif args.readMode == 'pickle':
-            with open(args.mapping,'rb') as mapF:
+        elif args.readMode in ['pickle', 'np']:
+            with open(mapping,'rb') as mapF:
                 Pdict = pickle.load(mapF)
         else:
-            Pdict = readMatlabMat(args.mapping)
-
+            Pdict = readMatlabMat(mapping)
     
-
-
-    
-    
-    
-
-    PheatList = []
-    for i in range(args.size):
-        row = []
-        for j in range(args.size):
-            try:
-                row.append(Pdict[(ordered1[i], ordered2[j])])
+        #permutate columns based on ordering
+        if args.readMode == 'np':
+            PheatArray = Pdict[:, ordered2]
+        else:
+            PheatList = []
+            for i in range(args.size):
+                row = []
+                for j in range(args.size):
+                    try:
+                        row.append(Pdict[(ordered1[i], ordered2[j])])
                  
-            except KeyError:
-                 row.append(0.0)
-        PheatList.append(row)
-    PheatArray = np.array( PheatList  )
+                    except KeyError:
+                        row.append(0.0)
+                PheatList.append(row)
+            PheatArray = np.array( PheatList  )
 
-#    plotter(PheatArray, args.outfile + ".pdf")
-    hm_plt = seaborn.heatmap(PheatArray, vmin=0.0, vmax=1.0)
-    hm_plt.get_figure().savefig(args.outfile + ".pdf") 
+       
     
     
-   #Find mathcing (by projection on the set of permutaion matrices via Hungarian method)
-    Cost_Mat = -1 * PheatArray
-    row_ind, col_ind  = linear_sum_assignment(Cost_Mat)
-    #print row_ind, col_ind
-    #Compute matching stats
+       #Find mathcing (by projection on the set of permutaion matrices via Hungarian method)
+        Cost_Mat = -1 * PheatArray
+        row_ind, col_ind  = linear_sum_assignment(Cost_Mat)
 
-    stats = {}
-    stats['ell1Diff'] = np.sum( np.absolute( PheatArray - np.eye(args.size)) ) 
+        if input_ind == 0:
+            PheatArray_tot = PheatArray
 
-    print( "The ell1 diff. between the solution and the true perm. matrix is {}\n".format(stats['ell1Diff']) )
+            #Compute matching stats
+            stats['ell1Diff'] = np.sum( np.absolute( PheatArray - np.eye(args.size)) ) 
+            stats['DPM'] = np.sum( np.diagonal(PheatArray) ) / args.size
+            stats['mismatch'] = np.linalg.norm(np.array(col_ind) - np.array(range(args.size)), 0) / args.size
+            stats['DPM-P'] = 1 - stats['mismatch']
+        else:
+            PheatArray_tot += PheatArray
 
-    stats['DPM'] = np.sum( np.diagonal(PheatArray) ) / args.size
+            #Compute matching stats
+            stats['ell1Diff'] += np.sum( np.absolute( PheatArray - np.eye(args.size)) )
+            stats['DPM'] += np.sum( np.diagonal(PheatArray) ) / args.size
+            stats['mismatch'] += np.linalg.norm(np.array(col_ind) - np.array(range(args.size)), 0) / args.size
+            stats['DPM-P'] += 1 - np.linalg.norm(np.array(col_ind) - np.array(range(args.size)), 0) / args.size
+            print(1 - np.linalg.norm(np.array(col_ind) - np.array(range(args.size)), 0) / args.size, np.sum( np.diagonal(PheatArray) ) / args.size )
+
+    for key in stats:
+        stats[key] /= len(args.mappings)
+    PheatArray_tot /= len(args.mappings)
+    print("Loaded {} solutions".format(len(args.mappings) ) )
     print( "Digonal mass is {}".format(stats['DPM']) )
-    stats['mismatch'] = np.linalg.norm(np.array(col_ind) - np.array(range(args.size)), 0) / args.size
-    stats['DPM-P'] = 1 - stats['mismatch']
-    print( "mismatch is {}".format(stats['mismatch']) )
     print("DPM-P is {}".format(stats['DPM-P']))
+       
+
+
     with open(args.outfile + '_stats', 'wb') as statsFile:
         pickle.dump(stats, statsFile)
     
+
+
+    #plot heatmap
+    hm_plt = seaborn.heatmap(PheatArray, vmin=0.0, vmax=1.0)
+    hm_plt.get_figure().savefig(args.outfile + ".pdf")

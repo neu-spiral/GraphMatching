@@ -56,7 +56,7 @@ if __name__ == "__main__":
     parser.add_argument('--lamb', default=0.0, type=float, help='lambda parameter regularizing the linear term.')
     parser.add_argument('--epsilon', default=1.e-2, type=float, help='The accuracy for cvxopt solver.')
     parser.add_argument('--p', default=2.5, type=float, help='p parameter in p-norm')
-    parser.add_argument('--ONLY_lin',action='store_true',help='Pass to ignore ||AP-PB||_p')
+    parser.add_argument('--ONLY_lin',action='store_true',help='Pass to ignore ||AP-PB||_p', dest='ONLY_lin')
     parser.set_defaults(ONLY_lin=False)
 
     args = parser.parse_args()
@@ -84,9 +84,13 @@ if __name__ == "__main__":
     #if args.p == 2:
     #    loss_term = cp.norm2( cp.reshape( A @ P - P @ B , args.graph_size ** 2) ) 
     #else:
-    loss_term  = cp.atoms.pnorm(A @ P - P @ B, p=args.p)
-    if args.dist_file:
-    	loss_term += args.lamb * cp.sum( cp.multiply(D, P) )
+
+    if not args.ONLY_lin:
+        loss_term  = cp.atoms.pnorm(A @ P - P @ B, p=args.p)
+        if args.dist_file:
+    	    loss_term += args.lamb * cp.sum( cp.multiply(D, P) )
+    else:
+        loss_term = cp.sum( cp.multiply(D, P) )
 
     objective = cp.Minimize(loss_term )
     constraints = [P @ one_vec == one_vec, P.T @ one_vec == one_vec, P >= 0]

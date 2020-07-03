@@ -1,0 +1,22 @@
+#! /bin/bash
+
+
+#SBATCH --job-name=cvxpy
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=2Gb
+#SBATCH --output=slurm-logs/cvxpy.%j.out
+#SBATCH --error=slurm-logs/cvxpy.%j.err
+
+graph1=ER64_0.1
+graph2=ER64_0.1_disturbed2outliers
+
+dist_file=Dist_$graph2"M3"
+p=$1
+size=64
+lambda=$2
+
+out=$graph1$graph2"_"$p"norm"$lambda"lambda"
+
+python cvxpySolver.py data/$graph1/graph data/$graph2/graph $size data/cvxpy_sol/$out --p $p --dist_file data/$graph1/$dist_file --lamb $lambda
+

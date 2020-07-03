@@ -1,0 +1,21 @@
+#! /bin/bash
+
+
+#SBATCH --job-name=cvxpy
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=2Gb
+#SBATCH --output=slurm-logs/cvxpy.%j.out
+#SBATCH --error=slurm-logs/cvxpy.%j.err
+
+graph1=ER64_0.1
+graph2=ER64_0.1_perturbed
+
+weight=graph_weights_both0.1_mixcoeff0.7
+p=$1
+size=64
+
+out=$graph1$weight"_"$p"norm"
+
+python cvxpySolver.py data/$graph1/graph data/$graph2/graph $size data/cvxpy_sol/$out --p $p --weights data/$graph2/$weight 
+

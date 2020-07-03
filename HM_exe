@@ -1,0 +1,33 @@
+#! /bin/bash
+
+
+#SBATCH --job-name=cvxpy
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=2Gb
+#SBATCH --output=slurm-logs/cvxpy.%j.out
+#SBATCH --error=slurm-logs/cvxpy.%j.err
+
+
+
+p=$1
+lambda=0.0
+coeff=0.7
+#solutions=`ls data/cvxpy_sol/ER64*ER64*2outliers*_$p"norm"*$lambda"lambda"*_P`
+solutions=`ls data/cvxpy_sol/ER64*both0.1_mixcoeff$coeff*_$p"norm"*_P`
+#solutions=`ls data/cvxpy_sol/*dist*2out*lin*`
+
+sol_arg=""
+for sol in $solutions
+do
+    sol_arg=$sol_arg" "$sol
+done
+
+
+outfile=data/HMstats/avg_mix$coeff"_noise_0.01_p"$p"lambda"$lambda
+#outfile=data/HMstats/avg_mix_bern$p"lambda"$lambda
+#outfile=data/HMstats/avg_outliers2_$p"norm_lambda"$lambda
+#outfile=data/HMstats/avg_outliers2_lin
+echo $sol_arg
+
+python heatMap.py $sol_arg  --outfile $outfile

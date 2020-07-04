@@ -11,11 +11,11 @@
 
 
 p=$1
-lambda=0.0
+lambda=$2
 coeff=0.7
-#solutions=`ls data/cvxpy_sol/ER64*ER64*2outliers*_$p"norm"*$lambda"lambda"*_P`
-solutions=`ls data/cvxpy_sol/ER64*both0.1_mixcoeff$coeff*_$p"norm"*_P`
-#solutions=`ls data/cvxpy_sol/*dist*2out*lin*`
+#solutions=`ls data/cvxpy_sol/ER64*ER64*keep*_$p"norm"*$lambda"lambda"*_P`
+#solutions=`ls data/cvxpy_sol/ER64*both0.1_mixcoeff$coeff*_$p"norm"*_P`
+solutions=`ls data/cvxpy_sol/*ER64*keep*lin*`
 
 sol_arg=""
 for sol in $solutions
@@ -24,10 +24,14 @@ do
 done
 
 
-outfile=data/HMstats/avg_mix$coeff"_noise_0.01_p"$p"lambda"$lambda
+#outfile=data/HMstats/avg_mix$coeff"_noise_0.01_p"$p"lambda"$lambda
 #outfile=data/HMstats/avg_mix_bern$p"lambda"$lambda
 #outfile=data/HMstats/avg_outliers2_$p"norm_lambda"$lambda
-#outfile=data/HMstats/avg_outliers2_lin
+outfile=data/HMstats/avg_bern_lin
 echo $sol_arg
 
-python heatMap.py $sol_arg  --outfile $outfile
+echo outfile is $outfile
+
+
+
+python heatMap.py $sol_arg  --outfile $outfile $3

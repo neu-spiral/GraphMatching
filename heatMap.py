@@ -93,6 +93,7 @@ if __name__ == "__main__":
     parser.add_argument('--N',default=60,type=int, help='Number of partitions')
 
     parser.add_argument('--readMode',default='np', choices={'sc','pickle','matlab', 'np'},help = 'Reading mode')
+    parser.add_argument('--no_cbar', action='store_false', help='Pass to not plot the color-bar', dest='cbar')
     parser.set_defaults(sc=False)
 
     args = parser.parse_args() 
@@ -180,5 +181,5 @@ if __name__ == "__main__":
 
 
     #plot heatmap
-    hm_plt = seaborn.heatmap(PheatArray, vmin=0.0, vmax=1.0, cmap='RdBu_r')
-    hm_plt.get_figure().savefig(args.outfile + ".pdf")
+    hm_plt = seaborn.heatmap(PheatArray, vmin=0.0, vmax=1.0, cmap='gist_gray', xticklabels=False, yticklabels=False, cbar=args.cbar, square=True)
+    hm_plt.get_figure().savefig(args.outfile + ".pdf", bbox_inches='tight')
